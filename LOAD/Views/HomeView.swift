@@ -1,9 +1,25 @@
 import SwiftUI
 import UIKit
 import AVKit
+import Combine
 
 @available(iOS 26.0, *)
 @ViewBuilder
+
+private func glassBackground() -> some View {
+
+        Rectangle()
+            .fill(.clear)
+            .background(
+                .thinMaterial
+            )
+            .overlay(
+                Rectangle()
+                    .fill(.clear)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 0))
+            )
+    }
+
 private func glassCapsuleIOS26() -> some View {
     Capsule().glassEffect(.regular, in: .capsule)
 }
@@ -17,9 +33,8 @@ struct HomeView: View {
     @State private var selectedTrack: Track?
     @State private var accessoryInline: Bool = false
 
-    // Keep observer tokens so we can remove them properly
-    @State private var kbShowObserver: NSObjectProtocol?
-    @State private var kbHideObserver: NSObjectProtocol?
+    // Remove NSObjectProtocol tokens; use Combine publishers instead
+    @State private var cancellables = Set<AnyCancellable>()
 
     private enum Metrics {
         static let horizontalPadding: CGFloat = 20
@@ -28,6 +43,8 @@ struct HomeView: View {
         static let resultsBottomPadding: CGFloat = 120
         static let topResultsPadding: CGFloat = 10
     }
+    @Binding var showSheet: Bool
+    @Namespace var animationNamespace
 
     var body: some View {
         NavigationStack {
@@ -73,11 +90,12 @@ struct HomeView: View {
             .onSubmit(of: .search) {
                 vm.search()
             }
-            .onAppear { registerKeyboardObservers() }
-            .onDisappear { removeKeyboardObservers() }
-
-            // เปลี่ยนเป็น inspector sheet (iOS 18+) พร้อม fallback เป็น sheet
-            .modifier(PlayerPresentationModifier(selectedTrack: $selectedTrack, vm: vm))
+            .onAppear {
+                registerKeyboardPublishers()
+            }
+            .onDisappear {
+                cancellables.removeAll()
+            }
         }
     }
 
@@ -106,7 +124,6 @@ struct HomeView: View {
                 miniPlayer(track: nowPlaying)
                     .padding(.horizontal, Metrics.horizontalPadding)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    // เปลี่ยนจากกดค้าง -> แตะ เพื่อเปิด player sheet/inspector
                     .onTapGesture { selectedTrack = nowPlaying }
             }
 
@@ -227,7 +244,8 @@ struct HomeView: View {
                         .lineLimit(1)
                         .frame(maxWidth: 90, alignment: .leading)
                         .foregroundStyle(.primary)
-
+                        .matchedGeometryEffect(id: "title", in: animationNamespace)
+                    
                     Button { vm.isPlaying ? vm.pause() : vm.play(track) } label: {
                         Image(systemName: vm.isPlaying ? "pause.fill" : "play.fill").font(.footnote)
                     }
@@ -303,10 +321,12 @@ struct HomeView: View {
                 Text(track.title)
                     .font(.callout)
                     .lineLimit(1)
+                    .matchedGeometryEffect(id: "title", in: animationNamespace)
                 Text(track.artist)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .matchedGeometryEffect(id: "artist", in: animationNamespace)
             }
 
             Spacer()
@@ -317,15 +337,18 @@ struct HomeView: View {
                     .foregroundStyle(.white)
             }
 
-            AirPlayRoutePickerView(
-                tintColor: UIColor.white,
-                activeTintColor: UIColor.systemBlue,
-                prioritizesVideoDevices: false
-            )
+     
+            }
+        }
+        AirPlayRoutePickerView()
             .frame(width: 28, height: 28)
             .contentShape(Rectangle())
             .accessibilityLabel("AirPlay")
         }
+            .background(.ultraThinMaterial) // liquid glass effect
+            .onTapGesture {
+                withAnimation(.spring()) {
+                    showSheet = true
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(
@@ -363,43 +386,70 @@ struct HomeView: View {
                 )
         }
     }
+                // MARK: - Helpers
 
-    // MARK: - Keyboard Observers
+                private func timeString(from seconds: Double) -> String {
+                    guard seconds.isFinite && seconds >= 0 else { return "0:00" }
+                    let s = Int(seconds)
+                    let min = s / 60
+                    let sec = s % 60
+                    return String(format: "%d:%02d", min, sec)
+                }
+
+     
+                // Explicit type-erased ShapeStyle to avoid inference issues
+                private func materialBackground() -> AnyShapeStyle {
+                    if #available(iOS 26.0, *) {
+                        return AnyShapeStyle(.regularMaterial)
+                    } else {
+                        return AnyShapeStyle(.ultraThinMaterial)
+                    }
+                }
+            }
+
+    // MARK: - Keyboard Handling (Publishers)
     @MainActor
-    private func registerKeyboardObservers() {
-        kbShowObserver = NotificationCenter.default.addObserver(
-            forName: UIResponder.keyboardWillShowNotification,
-            object: nil,
-            queue: .main
-        ) { note in
-            guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-                  let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double else { return }
-            let bottomInset = (UIApplication.shared.connectedScenes
-                .compactMap { ($0 as? UIWindowScene)?.keyWindow }
-                .first?.safeAreaInsets.bottom ?? 0)
-            withAnimation(.easeInOut(duration: duration)) {
-                keyboardHeight = max(0, frame.height - bottomInset)
-            }
-        }
-
-        kbHideObserver = NotificationCenter.default.addObserver(
-            forName: UIResponder.keyboardWillHideNotification,
-            object: nil,
-            queue: .main
-        ) { note in
-            let duration = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-            withAnimation(.easeInOut(duration: duration)) {
-                keyboardHeight = 0
-            }
-        }
+    private func bottomSafeAreaInset() -> CGFloat {
+        (UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+            .first?.safeAreaInsets.bottom) ?? 0
     }
 
     @MainActor
-    private func removeKeyboardObservers() {
-        if let o = kbShowObserver { NotificationCenter.default.removeObserver(o) }
-        if let o = kbHideObserver { NotificationCenter.default.removeObserver(o) }
-        kbShowObserver = nil
-        kbHideObserver = nil
+    private func registerKeyboardPublishers() {
+        NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)
+            .compactMap { $0.userInfo }
+            .map { userInfo -> (height: CGFloat, duration: Double, curve: UIView.AnimationOptions) in
+                let endFrame = (userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue ?? .zero
+                let duration = (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0.25
+                let curveRaw = (userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue ?? UIView.AnimationOptions.curveEaseInOut.rawValue
+                let curve = UIView.AnimationOptions(rawValue: curveRaw << 16)
+                let height = max(0, endFrame.height - bottomSafeAreaInset())
+                return (height, duration, curve)
+            }
+            .receive(on: RunLoop.main)
+            .sink { payload in
+                UIView.animate(withDuration: payload.duration, delay: 0, options: payload.curve, animations: {
+                    self.keyboardHeight = payload.height
+                }, completion: nil)
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)
+            .compactMap { $0.userInfo }
+            .map { userInfo -> (duration: Double, curve: UIView.AnimationOptions) in
+                let duration = (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0.25
+                let curveRaw = (userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue ?? UIView.AnimationOptions.curveEaseInOut.rawValue
+                let curve = UIView.AnimationOptions(rawValue: curveRaw << 16)
+                return (duration, curve)
+            }
+            .receive(on: RunLoop.main)
+            .sink { payload in
+                UIView.animate(withDuration: payload.duration, delay: 0, options: payload.curve, animations: {
+                    self.keyboardHeight = 0
+                }, completion: nil)
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Scroll Offset Key
@@ -409,28 +459,3 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Player Presentation (Inspector with fallback)
-private struct PlayerPresentationModifier: ViewModifier {
-    @Binding var selectedTrack: Track?
-    let vm: HomeViewModel
-
-    func body(content: Content) -> some View {
-        if #available(iOS 18.0, *) {
-            content
-                .inspector(item: $selectedTrack) { track in
-                    FullPlayerView(track: track)
-                        .environmentObject(vm)
-                        .inspectorColumnWidth(min: 280, ideal: 360, max: 420)
-                        .presentationDragIndicator(.visible)
-                }
-        } else {
-            content
-                .sheet(item: $selectedTrack) { track in
-                    FullPlayerView(track: track)
-                        .environmentObject(vm)
-                        .presentationDetents([.medium, .large])
-                        .presentationDragIndicator(.visible)
-                }
-        }
-    }
-}

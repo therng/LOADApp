@@ -85,6 +85,12 @@ final class HomeViewModel: ObservableObject {
 
     // MARK: - Open in Safari
     func openInSafari(_ track: Track) {
+        hapticFeedback()
         UIApplication.shared.open(track.download, options: [:], completionHandler: nil)
     }
+}
+
+private func hapticFeedback() {
+    let generator = UINotificationFeedbackGenerator()
+    generator.notificationOccurred(.success)
 }

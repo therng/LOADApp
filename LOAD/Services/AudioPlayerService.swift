@@ -9,7 +9,8 @@ final class AudioPlayerService: ObservableObject {
 
     private var player: AVPlayer?
     private var timeObserverToken: Any?
-
+    @Published var shuffleMode: Bool = false
+    @Published var repeatMode: Bool = false
     @Published var isPlaying = false
     @Published var currentTrack: Track?
 
