@@ -3,105 +3,154 @@ import Combine
 
 @MainActor
 final class HomeViewModel: ObservableObject {
-    // Search state
+
+    // MARK: - Search State
     @Published var query: String = ""
     @Published var results: [Track] = []
-    @Published var isLoading = false
+    @Published var isLoading: Bool = false
     @Published var errorMessage: String?
-    
-    // Playback state
+
+    // MARK: - Playback State
     @Published var nowPlaying: Track?
     @Published var isPlaying: Bool = false
-    
-    // Enhanced player state (full state machine)
+
+    // Full player state (sync from AudioPlayerService)
     @Published var playerState: AudioPlayerService.PlayerState = .idle
 
-    // Queue system
+    // MARK: - Queue
     @Published var queue: [Track] = []
     @Published var queueIndex: Int = 0
 
-    // Search history
+    // MARK: - Search History (local UX)
     @Published var recentKeywords: [String] = []
-    
+    @Published var historyItems: [HistoryItem] = []
+    @Published var isLoadingHistory: Bool = false
+    @Published var historyError: String?
+
+    // MARK: - Dependencies
     private let api: APIService
     private let player: AudioPlayerService
     private var cancellables = Set<AnyCancellable>()
-    
-    // Designated initializer requires explicit dependencies (avoids accessing @MainActor singletons from a nonisolated context)
+
+    // MARK: - Init
     init(api: APIService, player: AudioPlayerService) {
         self.api = api
         self.player = player
 
+        // Sync player → view model
         player.$state
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
-                self?.isPlaying = state.isPlaying
-                self?.nowPlaying = state.track
-                self?.playerState = state
+                guard let self else { return }
+                self.isPlaying = state.isPlaying
+                self.nowPlaying = state.track
+                self.playerState = state
             }
             .store(in: &cancellables)
     }
-    
-    // Convenience factory to create a default instance using the shared singletons on the main actor
+
+    // Factory (used in LOADApp.swift)
     static func makeDefault() -> HomeViewModel {
-        HomeViewModel(api: APIService.shared, player: AudioPlayerService.shared)
+        HomeViewModel(
+            api: APIService.shared,
+            player: AudioPlayerService.shared
+        )
     }
-    
-    // MARK: - Search
-    
+
+    // MARK: - Search (MAIN)
+
     func search() {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         isLoading = true
         errorMessage = nil
+        results.removeAll()
 
-        Task { @MainActor in
+        Task {
+            defer { isLoading = false }
+
             do {
-                // Use the concrete APIService’s method signature
                 let tracks = try await api.searchTracks(query: trimmed)
                 results = tracks
-                
-                // Maintain search history
-                if !trimmed.isEmpty, !recentKeywords.contains(trimmed) {
+
+                // Sync queue with results without auto-playing
+                setQueue(tracks, startAt: 0, autoplay: false)
+
+                // Maintain local search history (UX only)
+                if !recentKeywords.contains(trimmed) {
                     recentKeywords.insert(trimmed, at: 0)
                     if recentKeywords.count > 10 {
                         recentKeywords.removeLast()
                     }
                 }
             } catch {
+                // Ignore cancellation silently
+                if case APIService.APIError.cancelled = error {
+                    return
+                }
+
                 errorMessage = error.localizedDescription
             }
-            isLoading = false
         }
     }
-    
-    // MARK: - Playback
-    
+
+    // MARK: - History
+
+    func loadHistory() {
+        isLoadingHistory = true
+        historyError = nil
+
+        Task {
+            defer { isLoadingHistory = false }
+
+            do {
+                let items = try await api.fetchHistory()
+                historyItems = items.sorted { $0.timestamp > $1.timestamp }
+            } catch {
+                if case APIService.APIError.cancelled = error {
+                    return
+                }
+                historyError = error.localizedDescription
+            }
+        }
+    }
+
+    func fetchHistoryDetail(for searchID: String) async throws -> SearchResponse {
+        try await api.fetchSearchResult(id: searchID)
+    }
+
+    func applyHistoryResult(_ response: SearchResponse) {
+        query = response.query
+        results = response.results
+        setQueue(response.results)
+    }
+
+    // MARK: - Playback Controls
+
     func play(_ track: Track) {
+        if let index = queue.firstIndex(where: { $0.id == track.id }) {
+            queueIndex = index
+        }
         player.play(track: track)
     }
-    
+
     func pause() {
         player.pause()
     }
-    
+
     func togglePlayback() {
-        if isPlaying {
-            pause()
-        } else if let track = nowPlaying {
-            play(track)
-        }
+        isPlaying ? pause() : nowPlaying.map(play)
     }
-    
+
     // MARK: - Queue Controls
 
-    func setQueue(_ tracks: [Track], startAt index: Int = 0) {
+    func setQueue(_ tracks: [Track], startAt index: Int = 0, autoplay: Bool = true) {
         queue = tracks
         queueIndex = max(0, min(index, tracks.count - 1))
-        if !queue.isEmpty {
-            play(queue[queueIndex])
-        }
+
+        guard autoplay, !queue.isEmpty else { return }
+        play(queue[queueIndex])
     }
 
     func playNext() {

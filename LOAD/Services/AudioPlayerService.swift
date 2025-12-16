@@ -156,7 +156,7 @@ final class AudioPlayerService: ObservableObject {
         player.play()
         state = .playing(track)
 
-        duration = track.durationInSeconds ?? 0
+        duration = Double(track.duration)
         currentTime = 0
 
         configureNowPlaying(for: track)
@@ -311,11 +311,10 @@ final class AudioPlayerService: ObservableObject {
         info[MPMediaItemPropertyTitle] = track.title
         info[MPMediaItemPropertyArtist] = track.artist
 
-        if let duration = track.durationInSeconds {
-            info[MPMediaItemPropertyPlaybackDuration] = duration
-        }
+        // Duration is provided by Track as seconds (Int). Convert to Double for Now Playing.
+        info[MPMediaItemPropertyPlaybackDuration] = Double(track.duration)
 
-        // Default artwork using SF Symbol when there is no real artwork available
+        // Default artwork using asset "LogoW" (fallback to SF Symbol if missing)
         if let artwork = makeDefaultArtwork() {
             info[MPMediaItemPropertyArtwork] = artwork
         }
@@ -327,7 +326,33 @@ final class AudioPlayerService: ObservableObject {
     }
 
     private func makeDefaultArtwork() -> MPMediaItemArtwork? {
-        // Use an SF Symbol as a default artwork (e.g. music note or waveform)
+        // Use app asset named "LogoW" if available; otherwise fall back to an SF Symbol.
+        if let baseImage = UIImage(named: "LogoW") {
+            return MPMediaItemArtwork(boundsSize: baseImage.size) { requestedSize in
+                // If no specific size requested, return the base image.
+                guard requestedSize != .zero, requestedSize != baseImage.size else {
+                    return baseImage
+                }
+
+                // Scale the asset to the requested size while preserving aspect ratio.
+                let aspectWidth = requestedSize.width / baseImage.size.width
+                let aspectHeight = requestedSize.height / baseImage.size.height
+                let scale = min(aspectWidth, aspectHeight)
+                let targetSize = CGSize(
+                    width: baseImage.size.width * scale,
+                    height: baseImage.size.height * scale
+                )
+
+                let renderer = UIGraphicsImageRenderer(size: requestedSize)
+                return renderer.image { _ in
+                    let x = (requestedSize.width - targetSize.width) / 2
+                    let y = (requestedSize.height - targetSize.height) / 2
+                    baseImage.draw(in: CGRect(x: x, y: y, width: targetSize.width, height: targetSize.height))
+                }
+            }
+        }
+
+        // Fallback: Use an SF Symbol if the asset is missing.
         let config = UIImage.SymbolConfiguration(pointSize: 160, weight: .regular)
         guard let image = UIImage(systemName: "waveform.circle.fill", withConfiguration: config) ??
                           UIImage(systemName: "music.note", withConfiguration: config) else {

@@ -1,0 +1,39 @@
+{
+  "fill" : "automatic",
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "hidden" : false,
+          "image-name" : "Therng 2.png",
+          "name" : "Therng 2"
+        },
+        {
+          "hidden" : true,
+          "image-name" : "TherngB.png",
+          "name" : "TherngB"
+        },
+        {
+          "glass" : true,
+          "hidden" : true,
+          "image-name" : "Therng Logo.PNG",
+          "name" : "Therng Logo"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
