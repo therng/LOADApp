@@ -45,7 +45,10 @@ final class APIService {
         }
     }
     
-    // MARK: - Task Control (สำคัญ)
+    struct DeleteResponse: Decodable {
+        let deleted_count: Int
+    }
+
     private var currentSearchTask: Task<SearchResponse, Error>?
     
     // MARK: - Warmup
@@ -85,8 +88,7 @@ final class APIService {
             throw APIError.cancelled
         }
     }
-    
-    // Convenience for UI
+
     func searchTracks(query: String) async throws -> [Track] {
         let response = try await search(query: query)
         return response.results
@@ -109,6 +111,81 @@ final class APIService {
             throw APIError.invalidURL
         }
         return try await request(url: url)
+    }
+    
+    // MARK: - Delete History
+    func deleteAllHistory() async throws -> DeleteResponse {
+        guard let url = URL(string: "\(endpointBase)/delete") else {
+            throw APIError.invalidURL
+        }
+        return try await request(url: url, method: "DELETE")
+    }
+
+    func deleteHistoryItem(id: String) async throws -> DeleteResponse {
+        guard let url = URL(string: "\(endpointBase)/delete/\(id)") else {
+            throw APIError.invalidURL
+        }
+        return try await request(url: url, method: "DELETE")
+    }
+    
+    // MARK: - Core Request (Generic, method)
+    private func request(url: URL, method: String) async throws {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+#if DEBUG
+        print("🌐 \(method):", url.absoluteString)
+#endif
+        do {
+            let (_, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw APIError.badResponse(statusCode: -1)
+            }
+            guard (200...299).contains(http.statusCode) else {
+#if DEBUG
+                print("❌ HTTP \(http.statusCode) for \(method) \(url.absoluteString)")
+#endif
+                throw APIError.badResponse(statusCode: http.statusCode)
+            }
+        } catch is CancellationError {
+            throw APIError.cancelled
+        } catch {
+            throw APIError.network(error)
+        }
+    }
+    
+    // MARK: - Core Request (Decoding, method)
+    private func request<T: Decodable>(url: URL, method: String) async throws -> T {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+#if DEBUG
+        print("🌐 \(method):", url.absoluteString)
+#endif
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw APIError.badResponse(statusCode: -1)
+            }
+            guard (200...299).contains(http.statusCode) else {
+#if DEBUG
+                if let body = String(data: data, encoding: .utf8) {
+                    print("❌ HTTP \(http.statusCode):", body)
+                }
+#endif
+                throw APIError.badResponse(statusCode: http.statusCode)
+            }
+            let decoder = JSONDecoder()
+            return try decoder.decode(T.self, from: data)
+        } catch is CancellationError {
+            throw APIError.cancelled
+        } catch let api as APIError {
+            throw api
+        } catch {
+            throw APIError.network(error)
+        }
     }
     
     // MARK: - Core Request
