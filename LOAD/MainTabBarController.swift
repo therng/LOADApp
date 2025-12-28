@@ -6,7 +6,7 @@ final class MainTabBarController: UITabBarController {
 
         tabBarMinimizeBehavior = .onScrollDown
 
-        let historyViewController = HistoryViewController(style: .insetGrouped)
+        let historyViewController = HistoryViewController(style: .)
         historyViewController.tabBarItem = UITabBarItem(
             title: "History",
             image: UIImage(systemName: "clock"),
