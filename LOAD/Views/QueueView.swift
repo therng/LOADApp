@@ -13,6 +13,7 @@ struct QueueView: View {
                 }
             }
             .navigationTitle("Up Next")
+            .navigationBarTitleDisplayMode(.automatic)
         }
     }
     

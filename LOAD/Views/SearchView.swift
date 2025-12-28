@@ -25,16 +25,9 @@ struct SearchView: View {
                 }
             }
             .searchable(text: $searchText, placement: .automatic)
-            .onChange(of: isSearchFocused) { _, newValue in
-                // When the search field becomes presented, automatically focus it
-                if newValue {
-                    isSearchFocused = true
-                }
-            }
             .onSubmit(of: .search) {
                 performSearch()
             }
-            .navigationTitle(searchText.isEmpty ? "Search" : searchText)
             .sheet(
                 isPresented: Binding(
                     get: { safariURL != nil },
@@ -122,7 +115,6 @@ struct SearchView: View {
         }
         .frame(maxHeight: .infinity)
     }
-
     private func performSearch() {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
@@ -139,9 +131,6 @@ struct SearchView: View {
             }
         }
     }
-
-    // Insert selected track to play right after the current one.
-    // No new APIs needed: rebuild queue and call setQueue().
     private func queueAsNext(_ track: Track) {
         // Base queue: if player already has a queue, use it; otherwise use current search results.
         var newQueue = player.queue.isEmpty ? tracks : player.queue

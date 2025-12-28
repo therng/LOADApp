@@ -42,20 +42,16 @@ final class AudioPlayerService: ObservableObject {
     // MARK: - Published State
 
     @Published private(set) var state: PlayerState = .idle
-    @Published private(set) var currentTime: Double = 0
-    @Published private(set) var duration: Double = 0
+    let progress = PlaybackProgress()
 
     // Up Next queue (autoplay)
     @Published private(set) var queue: [Track] = []
     @Published private(set) var queueIndex: Int? = nil
-    @Published private(set) var coverCache: [String: URL] = [:]
 
     var currentTrack: Track? { state.track }
     var isPlaying: Bool { state.isPlaying }
-    var currentCoverURL: URL? {
-        guard let track = state.track else { return nil }
-        return coverCache[track.id]
-    }
+    var currentTime: Double { progress.currentTime }
+    var duration: Double { progress.duration }
 
     let playbackFinished = PassthroughSubject<Void, Never>()
 
@@ -65,8 +61,13 @@ final class AudioPlayerService: ObservableObject {
     private var timeObserverToken: Any?
     private var interruptionObserverToken: Any?
     private let audioSession = AVAudioSession.sharedInstance()
-    private var coverRequests: Set<String> = []
-    private var coverFailures: Set<String> = []
+
+    // MARK: - Progress
+
+    final class PlaybackProgress: ObservableObject {
+        @Published var currentTime: Double = 0
+        @Published var duration: Double = 0
+    }
 
     // MARK: - Init
 
@@ -143,8 +144,6 @@ final class AudioPlayerService: ObservableObject {
             queueIndex = nil
         }
 
-        requestCoverIfNeeded(for: track)
-
         state = .loading(track)
         startNewPlayer(with: track)
     }
@@ -187,33 +186,13 @@ final class AudioPlayerService: ObservableObject {
             let clampedCopy = clamped
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.currentTime = clampedCopy
+                self.progress.currentTime = clampedCopy
                 self.updateNowPlayingElapsedTime(clampedCopy)
             }
         }
     }
 
     // MARK: - Private Helpers
-
-    func coverURL(for track: Track) -> URL? {
-        coverCache[track.id]
-    }
-
-    func requestCoverIfNeeded(for track: Track) {
-        if coverCache[track.id] != nil { return }
-        if coverFailures.contains(track.id) || coverRequests.contains(track.id) { return }
-
-        coverRequests.insert(track.id)
-        ShazamMP3CoverMatcher.shared.matchCover(from: track.download) { [weak self] url in
-            guard let self else { return }
-            self.coverRequests.remove(track.id)
-            if let url {
-                self.coverCache[track.id] = url
-            } else {
-                self.coverFailures.insert(track.id)
-            }
-        }
-    }
 
     private func nextTrack(advance: Bool) -> Track? {
         guard !queue.isEmpty else { return nil }
@@ -269,8 +248,8 @@ final class AudioPlayerService: ObservableObject {
         player.play()
         state = .playing(track)
 
-        duration = Double(track.duration)
-        currentTime = 0
+        progress.duration = Double(track.duration)
+        progress.currentTime = 0
 
         configureNowPlaying(for: track)
         updateNowPlayingRate(1.0)
@@ -292,7 +271,7 @@ final class AudioPlayerService: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if secondsCopy.isFinite {
-                    self.currentTime = secondsCopy
+                    self.progress.currentTime = secondsCopy
                     self.updateNowPlayingElapsedTime(secondsCopy)
                 }
 
@@ -300,7 +279,7 @@ final class AudioPlayerService: ObservableObject {
                 if let item = self.player?.currentItem {
                     let d = CMTimeGetSeconds(item.duration)
                     if d.isFinite && d > 0 {
-                        self.duration = d
+                        self.progress.duration = d
                     }
                 }
             }
@@ -324,8 +303,8 @@ final class AudioPlayerService: ObservableObject {
         player?.pause()
         player?.replaceCurrentItem(with: nil)
         player = nil
-        currentTime = 0
-        duration = 0
+        progress.currentTime = 0
+        progress.duration = 0
     }
 
     // MARK: - Audio Session / Interruption
@@ -459,7 +438,7 @@ final class AudioPlayerService: ObservableObject {
             info[MPNowPlayingInfoPropertyPlaybackQueueCount] = queue.count
         }
 
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = progress.currentTime
         info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info

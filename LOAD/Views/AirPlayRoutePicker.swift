@@ -2,8 +2,8 @@ import AVKit
 import SwiftUI
 
 struct AirPlayRoutePicker: UIViewRepresentable {
-    var tintColor: UIColor = .white
-    var activeTintColor: UIColor = .white
+    var tintColor: UIColor = .label
+    var activeTintColor: UIColor = .systemBlue
     func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
         view.backgroundColor = .clear

@@ -48,6 +48,10 @@ final class APIService {
     struct DeleteResponse: Decodable {
         let deleted_count: Int
     }
+    struct DeleteItemResponse: Decodable {
+        let deleted: Bool
+        let search_id: String
+    }
 
     private var currentSearchTask: Task<SearchResponse, Error>?
     
@@ -121,7 +125,7 @@ final class APIService {
         return try await request(url: url, method: "DELETE")
     }
 
-    func deleteHistoryItem(id: String) async throws -> DeleteResponse {
+    func deleteHistoryItem(id: String) async throws -> DeleteItemResponse {
         guard let url = URL(string: "\(endpointBase)/delete/\(id)") else {
             throw APIError.invalidURL
         }
@@ -263,3 +267,4 @@ final class APIService {
         return formatter
     }()
 }
+

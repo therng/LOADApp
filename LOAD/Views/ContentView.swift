@@ -1,29 +1,36 @@
 import SwiftUI
 
+
+
 struct ContentView: View {
     @EnvironmentObject var player: AudioPlayerService
     @State private var selectedTab = 0
     @State private var isFullPlayerPresented = false
+    @State private var searchText = ""
+    @State private var tracks: [Track] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
     
     var body: some View {
         TabView(selection: $selectedTab){
-            Tab("Player", systemImage: "play.house", value: 0) {
-                FullPlayerView()
+            Tab("Search", systemImage: "magnifyingglass", value: 0, role: .search) {
+                SearchView()
+                
             }
-            Tab("History", systemImage: "clock.arrow.circlepath", value: 1) {
-                HistoryView()
-            }
-            Tab("Queue", systemImage: "list.bullet.rectangle.portrait", value: 2) {
+            Tab("Queue", systemImage: "list.clipboard.fill", value: 1) {
                 QueueView()
             }
-            Tab("Search", systemImage: "magnifyingglass", value: 3, role: .search ) {
-                SearchView()
+            Tab("History", systemImage: "clock.arrow.circlepath", value: 2) {
+                HistoryView()
             }
+          
         }
-        .tabViewStyle(.sidebarAdaptable)
+        .tabViewSearchActivation(.searchTabSelection)
+        .tabViewStyle(.automatic)
         .tabBarMinimizeBehavior(.onScrollDown)
-        .tabViewBottomAccessory(isEnabled: selectedTab != 0 && player.currentTrack != nil) {
+        .tabViewBottomAccessory(isEnabled: player.currentTrack != nil) {
             MiniPlayerView(isFullPlayerPresented: $isFullPlayerPresented)
+                .background(.clear)
         }
         .sheet(isPresented: $isFullPlayerPresented) {
             FullPlayerView()
@@ -32,3 +39,10 @@ struct ContentView: View {
         }
     }
 }
+
+
+#Preview {
+    ContentView()
+        .environmentObject(AudioPlayerService.shared)
+}
+

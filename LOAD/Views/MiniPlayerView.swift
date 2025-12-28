@@ -1,83 +1,88 @@
 import SwiftUI
-    
+
 struct MiniPlayerView: View {
+    @Environment(\.tabViewBottomAccessoryPlacement) var tabViewBottomAccessoryPlacement
     @EnvironmentObject var player: AudioPlayerService
     @Binding var isFullPlayerPresented: Bool
-    
+
     var body: some View {
-        HStack(spacing: 4) {
-            ZStack {
-                MeshGradient(
-                    width: 3,
-                    height: 3,
-                    points: [
-                        [0.0, 0.0], [0.5, 0.0], [1.0, 0.0],
-                        [0.0, 0.5], [0.5, 0.5], [1.0, 0.5],
-                        [0.0, 1.0], [0.5, 1.0], [1.0, 1.0]
-                    ],
-                    colors: [
-                        .orange, .pink, .purple,
-                        .red, .pink, .indigo,
-                        .purple, .blue, .cyan
-                    ]
-                )
+        switch tabViewBottomAccessoryPlacement {
+        case .expanded:
+            HStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    waveformView
+                    titleView
+                        .layoutPriority(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 
-                if let coverURL = player.currentCoverURL {
-                    AsyncImage(url: coverURL) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFill()
-                        case .failure:
-                            Image(systemName: "music.note")
-                                .foregroundStyle(.white.opacity(0.8))
-                        default:
-                            ProgressView()
-                                .tint(.white)
-                        }
+                controlsView
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .onTapGesture {
+                isFullPlayerPresented = true
+            }
+        default:
+            HStack(spacing: 4){
+                Image(systemName: "waveform")
+                    .scaleEffect(1)
+                .symbolEffect(.variableColor.cumulative.reversing, options: .repeating.speed(0.8))
+               titleView
+                    .scaleEffect(1)
+                Button(action: player.togglePlayPause) {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 18))
                     }
-                    .frame(width: 30, height: 30)
-                } else {
-                    Image(systemName: "music.note")
-                        .foregroundStyle(.white.opacity(0.8))
+                }
+            
+                .padding(.horizontal,14)
+                .padding(.vertical, 10)
+                .onTapGesture {
+                    isFullPlayerPresented = true
                 }
             }
-            .frame(width: 30, height: 30)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .padding(.horizontal, 4)
-            if let track = player.currentTrack {
-                Text(track.title)
-                    .font(.body)
-                    .fontWeight(.regular)
-                    .lineLimit(1)
-            }
-            Spacer()
-            Button {
-                player.togglePlayPause()
-            } label: {
+        }
+    
+    @ViewBuilder
+    private var titleView: some View {
+        if let track = player.currentTrack {
+            MarqueeText(
+                text: track.title,
+                font: .body,
+                color: .primary,
+                isActive: true,
+                speed: 28,
+                spacing: 24,
+                alignment: .leading
+            )
+        } else {
+            Text("Not Playing")
+                .font(.body)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var waveformView: some View {
+        Image(systemName: "waveform")
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(.blue, .purple, .pink)
+            .font(.headline)
+            .symbolEffect(.bounce, options: .repeating.speed(1))
+            .symbolEffect(.variableColor.cumulative.reversing, options: .repeating.speed(0.8))
+            .frame(width: 40, height: 40)
+    }
+
+    private var controlsView: some View {
+        HStack(spacing: 16) {
+            Button(action: player.togglePlayPause) {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 24))
+                    .font(.system(size: 22))
             }
-            Button {
-                player.playNext()
-            } label: {
+
+            Button(action: player.playNext) {
                 Image(systemName: "forward.fill")
-                    .font(.system(size: 24))
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            isFullPlayerPresented = true
-        }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 12)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.1), radius: 10, y: 5)
-        .background(.ultraThinMaterial)
-        .task(id: player.currentTrack?.id) {
-            if let track = player.currentTrack {
-                player.requestCoverIfNeeded(for: track)
+                    .font(.system(size: 22))
             }
         }
     }

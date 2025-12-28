@@ -1,11 +1,16 @@
 import SwiftUI
 
 struct HistoryView: View {
-    @EnvironmentObject var player: AudioPlayerService
     @State private var historyItems: [HistoryItem] = []
     @State private var isLoading = false
     @State private var showErrorAlert = false
     @State private var errorMessage: String?
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter
+    }()
     
     var body: some View {
         NavigationStack {
@@ -19,12 +24,17 @@ struct HistoryView: View {
                 }
             }
             .navigationTitle("History")
+            .navigationBarTitleDisplayMode(.automatic)
+            .navigationTransition(.automatic)
+            .assistiveAccessNavigationIcon(systemImage: "history")
             .toolbar {
-                if !historyItems.isEmpty {
-                    Button("Clear", systemImage: "trash") {
-                        clearHistory()
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if !historyItems.isEmpty {
+                        Button("Clear", systemImage: "trash") {
+                            clearHistory()
+                        }
+                        .tint(.red)
                     }
-                    .tint(.red)
                 }
             }
             .task {
@@ -49,7 +59,7 @@ struct HistoryView: View {
                             .font(.body)
                             .fontWeight(.medium)
                         
-                        Text(item.timestamp, style: .relative)
+                        Text(Self.relativeFormatter.localizedString(for: item.timestamp, relativeTo: Date()))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -61,32 +71,55 @@ struct HistoryView: View {
                 }
             }
         }
+        .listStyle(.plain)
+        .refreshable {
+            await loadHistory(force: true)
+        }
     }
     
     private var emptyView: some View {
-        ContentUnavailableView(
-            "No History",
-            systemImage: "clock.arrow.circlepath",
-            description: Text("Your search history will appear here")
-        )
+        ContentUnavailableView {
+            Label("No History", systemImage: "clock.arrow.circlepath")
+        } description: {
+            Text("Your search history will appear here")
+        } actions: {
+            Button("Reload") {
+                Task { await loadHistory(force: true) }
+            }
+        }
     }
     
-    private func loadHistory() async {
-        await MainActor.run { isLoading = true }
+    private func loadHistory(force: Bool = false) async {
+        let shouldLoad = await MainActor.run { () -> Bool in
+            if isLoading { return false }
+            if !force && !historyItems.isEmpty { return false }
+            isLoading = true
+            errorMessage = nil
+            showErrorAlert = false
+            return true
+        }
+        
+        guard shouldLoad else { return }
+        
         do {
             let items = try await APIService.shared.fetchHistory()
             await MainActor.run {
-                self.historyItems = items
+                withAnimation {
+                    historyItems = items
+                }
+                isLoading = false
             }
-            print("[HistoryView] Loaded \(items.count) history items.")
         } catch {
-            print("[HistoryView] Error loading history: \(error)")
+            if isCancellation(error) {
+                await MainActor.run { isLoading = false }
+                return
+            }
             await MainActor.run {
-                self.errorMessage = error.localizedDescription
-                self.showErrorAlert = true
+                errorMessage = error.localizedDescription
+                showErrorAlert = true
+                isLoading = false
             }
         }
-        await MainActor.run { isLoading = false }
     }
     
     private func clearHistory() {
@@ -101,10 +134,9 @@ struct HistoryView: View {
                 }
                 print("[HistoryView] Cleared all history.")
             } catch {
-                print("[HistoryView] Error clearing history: \(error)")
                 await MainActor.run {
-                    self.errorMessage = error.localizedDescription
-                    self.showErrorAlert = true
+                    errorMessage = error.localizedDescription
+                    showErrorAlert = true
                 }
             }
         }
@@ -122,12 +154,30 @@ struct HistoryView: View {
                 }
                 print("[HistoryView] Deleted item id=\(item.search_id)")
             } catch {
-                print("[HistoryView] Error deleting item id=\(item.search_id): \(error)")
                 await MainActor.run {
-                    self.errorMessage = error.localizedDescription
-                    self.showErrorAlert = true
+                    errorMessage = error.localizedDescription
+                    showErrorAlert = true
                 }
             }
         }
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let apiError = error as? APIService.APIError {
+            switch apiError {
+            case .cancelled:
+                return true
+            case .network(let underlying):
+                if let urlError = underlying as? URLError, urlError.code == .cancelled {
+                    return true
+                }
+                let nsError = underlying as NSError
+                return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+            default:
+                return false
+            }
+        }
+        return false
     }
 }

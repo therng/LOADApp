@@ -1,338 +1,212 @@
 import SwiftUI
-import UIKit
+import Combine
 
 struct FullPlayerView: View {
     @EnvironmentObject var player: AudioPlayerService
     @State private var safariURL: URL?
     @State private var safariDetent: PresentationDetent = .medium
-    @State private var pendingCoverOpen = false
     @State private var isTitleMarqueeActive = false
-    
+
+
     var body: some View {
         ZStack {
-            MeshGradient(
-                width: 3,
-                height: 3,
-                points: [
-                    [0.0, 0.0], [0.5, 0.0], [1.0, 0.0],
-                    [0.0, 0.5], [0.5, 0.5], [1.0, 0.5],
-                    [0.0, 1.0], [0.5, 1.0], [1.0, 1.0]
-                ],
-                colors: [
-                    .purple.opacity(0.8), .blue.opacity(0.8), .cyan.opacity(0.8),
-                    .pink.opacity(0.8), .indigo.opacity(0.8), .blue.opacity(0.8),
-                    .red.opacity(0.8), .purple.opacity(0.8), .pink.opacity(0.8)
-                ]
-            )
-            .ignoresSafeArea()
+         
             GeometryReader { proxy in
-                let artworkSize = min(proxy.size.width * 0.78, 320)
-
                 VStack(spacing: 20) {
-                    ZStack {
-                        Text("Now Playing")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.white.opacity(0.8))
-
-                        HStack {
-                            Spacer()
-
-                            Menu {
-                                if let track = player.currentTrack {
-                                    TrackActionMenuItems(track: track) { url in
-                                        safariURL = url
-                                    }
-                                } else {
-                                    Button("No Track", systemImage: "music.note") {}
-                                        .disabled(true)
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis.circle")
-                                    .font(.title2)
-                                    .foregroundStyle(.white)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-
+                    headerMenu
                     Spacer(minLength: 8)
+                    ArtworkView(size: min(proxy.size.width * 0.78, 320))
 
-                    // Large artwork
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(.white.opacity(0.1))
-
-                        if let coverURL = player.currentCoverURL {
-                            AsyncImage(url: coverURL) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .scaledToFill()
-                                case .failure:
-                                    Image(systemName: "music.note")
-                                        .font(.system(size: 80))
-                                        .foregroundStyle(.white.opacity(0.6))
-                                default:
-                                    ProgressView()
-                                        .tint(.white)
-                                }
-                            }
-                        } else {
-                            Image(systemName: "music.note")
-                                .font(.system(size: 80))
-                                .foregroundStyle(.white.opacity(0.6))
-                        }
-                    }
-                    .frame(width: artworkSize, height: artworkSize)
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                    .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
-                    .contentShape(RoundedRectangle(cornerRadius: 20))
-                    .onTapGesture {
-                        if let coverURL = player.currentCoverURL {
-                            safariURL = coverURL
-                        } else if let track = player.currentTrack {
-                            pendingCoverOpen = true
-                            player.requestCoverIfNeeded(for: track)
-                        }
-                    }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel("Album artwork")
-
-                    // Track info
                     if let track = player.currentTrack {
-                        VStack(spacing: 8) {
-                            MarqueeText(
-                                text: track.title,
-                                font: titleUIFont,
-                                color: .white,
-                                isActive: isTitleMarqueeActive,
-                                speed: 32,
-                                spacing: 32
-                            )
-                            .onTapGesture {
-                                isTitleMarqueeActive.toggle()
-                            }
-                            .accessibilityLabel(track.title)
-
-                            Text(track.artist)
-                                .font(.init(artistUIFont))
-                                .foregroundStyle(.white.opacity(0.7))
-                                .multilineTextAlignment(.center)
-                                .lineLimit(2)
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-
-                    // Progress slider
-                    VStack(spacing: 8) {
-                        Slider(
-                            value: Binding(
-                                get: { player.currentTime },
-                                set: { player.seek(to: $0) }
-                            ),
-                            in: 0...max(player.duration, 1)
+                        TrackInfoView(
+                            title: track.title,
+                            artist: track.artist,
+                            isMarqueeActive: $isTitleMarqueeActive,
+                            titleFont: titleFont,
+                            artistFont: artistFont
                         )
-                        .tint(.white)
-
-                        HStack {
-                            Text(player.currentTime.mmss)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.7))
-                                .monospacedDigit()
-
-                            Spacer()
-
-                            Text(player.duration.mmss)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.7))
-                                .monospacedDigit()
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    // Controls
-                    HStack(spacing: 40) {
-                        Button {
-                            player.playPrevious()
-                        } label: {
-                            Image(systemName: "backward.fill")
-                                .font(.system(size: 32))
-                                .foregroundStyle(.white)
-                        }
-
-                        Button {
-                            player.togglePlayPause()
-                        } label: {
-                            Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 64))
-                                .foregroundStyle(.white)
-                            // iOS 18: Scale effect
-                                .symbolEffect(.bounce, value: player.isPlaying)
-                        }
-
-                        Button {
-                            player.playNext()
-                        } label: {
-                            Image(systemName: "forward.fill")
-                                .font(.system(size: 32))
-                                .foregroundStyle(.white)
-                        }
                     }
 
+                    PlaybackProgressView(progress: player.progress, onSeek: player.seek)
+                    PlaybackControlsView()
                     AirPlayRoutePicker()
                         .frame(width: 45, height: 45)
                         .accessibilityLabel("AirPlay")
 
                     Spacer(minLength: 8)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .sheet(
-            isPresented: Binding(
-                get: { safariURL != nil },
-                set: { if !$0 { safariURL = nil } }
-            )
-        ) {
+        .background(LinearGradient(gradient: Gradient(colors: [Color(.systemBackground), Color(.secondarySystemBackground)]), startPoint: .top, endPoint: .bottom))
+        .sheet(isPresented: Binding(get: { safariURL != nil }, set: { if !$0 { safariURL = nil } })) {
             if let safariURL {
                 SafariView(url: safariURL)
                     .presentationDetents([.medium, .large], selection: $safariDetent)
                     .presentationDragIndicator(.visible)
+                
             }
         }
-        .task(id: player.currentTrack?.id) {
-            if let track = player.currentTrack {
-                player.requestCoverIfNeeded(for: track)
-            }
-        }
+  
         .onChange(of: player.currentTrack?.id) { _, _ in
-            pendingCoverOpen = false
             isTitleMarqueeActive = false
         }
-        .onChange(of: player.currentCoverURL) { _, newValue in
-            guard pendingCoverOpen, let newValue else { return }
-            pendingCoverOpen = false
-            safariURL = newValue
+    }
+
+    private var headerMenu: some View {
+        NowPlayingHeaderView(
+            track: player.currentTrack,
+            onMenuAction: { safariURL = $0 }
+        )
+    }
+
+    private var titleFont: Font {
+        .title2.weight(.bold)
+    }
+
+    private var artistFont: Font {
+        .title3
+    }
+
+    private func ArtworkView(size: CGFloat) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 20)
+                .fill(.thinMaterial)
+
+            Image(systemName: "music.note")
+                .font(.system(size: 80))
+                .foregroundStyle(.secondary)
         }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .shadow(color: Color.primary.opacity(0.15), radius: 20, y: 10)
+        .accessibilityLabel("Album artwork")
     }
 
-    private var titleUIFont: UIFont {
-        let baseSize = UIFont.preferredFont(forTextStyle: .title2).pointSize
-        return UIFontMetrics(forTextStyle: .title2)
-            .scaledFont(for: UIFont.systemFont(ofSize: baseSize, weight: .bold))
-    }
+    private func PlaybackControlsView() -> some View {
+        HStack(spacing: 40) {
+            Button(action: player.playPrevious) {
+                Image(systemName: "backward.fill")
+                    .font(.system(size: 32))
+            }
 
-    private var artistUIFont: UIFont {
-        let baseSize = UIFont.preferredFont(forTextStyle: .title3).pointSize
-        return UIFontMetrics(forTextStyle: .title3)
-            .scaledFont(for: UIFont.systemFont(ofSize: baseSize, weight: .regular))
+            Button(action: player.togglePlayPause) {
+                Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 64))
+                    .symbolEffect(.bounce, value: player.isPlaying)
+            }
+
+            Button(action: player.playNext) {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 32))
+            }
+        }
+        .foregroundStyle(.primary)
     }
 }
+
+// MARK: - Subviews
+
+private struct PlaybackProgressView: View {
+    @ObservedObject var progress: AudioPlayerService.PlaybackProgress
+    let onSeek: (Double) -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Slider(
+                value: Binding(get: { progress.currentTime }, set: onSeek),
+                in: 0...max(progress.duration, 1)
+            )
+            .tint(.accentColor)
+
+            HStack {
+                Text(progress.currentTime.mmss)
+                Spacer()
+                Text(progress.duration.mmss)
+            }
+            .frame(maxWidth: .infinity)
+            .font(.caption)
+            .foregroundStyle(.primary.opacity(0.7))
+            .monospacedDigit()
+        }
+    }
+}
+
+private struct NowPlayingHeaderView: View {
+    let track: Track?
+    let onMenuAction: (URL) -> Void
+
+    var body: some View {
+        HStack {
+            Text("Now Playing")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.primary.opacity(0.8))
+
+            Spacer()
+
+            Menu {
+                if let track = track {
+                    TrackActionMenuItems(track: track, onSave: onMenuAction)
+                } else {
+                    Button("No Track", systemImage: "music.note") {}
+                        .disabled(true)
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title2)
+                    .foregroundStyle(.primary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+struct TrackInfoView: View {
+    let title: String
+    let artist: String
+    @Binding var isMarqueeActive: Bool
+    let titleFont: Font
+    let artistFont: Font
+
+    var body: some View {
+        VStack(spacing: 8) {
+            MarqueeText(
+                text: title,
+                font: titleFont,
+                color: .primary,
+                isActive: isMarqueeActive,
+                speed: 32,
+                spacing: 32,
+                alignment: .center
+            )
+            .onTapGesture {
+                isMarqueeActive.toggle()
+            }
+            .accessibilityLabel(title)
+
+            Text(artist)
+                .font(artistFont)
+                .foregroundStyle(.primary.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
 
 extension Double {
     var mmss: String {
-        guard self.isFinite else { return "0:00" }
-        let totalSeconds = max(0, Int(self.rounded(.down)))
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
+        guard isFinite else { return "0:00" }
+        let totalSeconds = max(0, Int(self))
+        let minutes = (totalSeconds / 60) % 60
         let seconds = totalSeconds % 60
-
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        }
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-}
-
-private struct MarqueeText: View {
-    let text: String
-    let font: UIFont
-    let color: Color
-    let isActive: Bool
-    let speed: CGFloat
-    let spacing: CGFloat
-
-    @State private var textWidth: CGFloat = 0
-    @State private var offset: CGFloat = 0
-
-    var body: some View {
-        GeometryReader { proxy in
-            let containerWidth = proxy.size.width
-
-            ZStack(alignment: .leading) {
-                if isActive && textWidth > containerWidth {
-                    HStack(spacing: spacing) {
-                        measuredText
-                        measuredText
-                    }
-                    .offset(x: offset)
-                    .onAppear {
-                        startAnimation(containerWidth: containerWidth)
-                    }
-                    .onChange(of: textWidth) { _, _ in
-                        startAnimation(containerWidth: containerWidth)
-                    }
-                    .onChange(of: containerWidth) { _, _ in
-                        startAnimation(containerWidth: containerWidth)
-                    }
-                    .onChange(of: isActive) { _, _ in
-                        startAnimation(containerWidth: containerWidth)
-                    }
-                } else {
-                    measuredText
-                }
-            }
-            .frame(width: containerWidth, alignment: .leading)
-            .clipped()
-        }
-        .frame(height: font.lineHeight)
-    }
-
-    private var measuredText: some View {
-        Text(text)
-            .font(.init(font))
-            .foregroundStyle(color)
-            .lineLimit(1)
-            .background(WidthReader())
-            .onPreferenceChange(WidthKey.self) { value in
-                if textWidth != value {
-                    textWidth = value
-                }
-            }
-    }
-
-    private func startAnimation(containerWidth: CGFloat) {
-        guard isActive, textWidth > containerWidth else {
-            offset = 0
-            return
-        }
-
-        let distance = textWidth + spacing
-        let duration = Double(distance / speed)
-        offset = 0
-
-        withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
-            offset = -distance
-        }
-    }
-}
-
-private struct WidthReader: View {
-    var body: some View {
-        GeometryReader { proxy in
-            Color.clear.preference(key: WidthKey.self, value: proxy.size.width)
-        }
-    }
-}
-
-private struct WidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
+        let hours = totalSeconds / 3600
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%d:%02d", minutes, seconds)
     }
 }

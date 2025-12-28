@@ -13,48 +13,7 @@ struct TrackRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            ZStack {
-                MeshGradient(
-                    width: 3,
-                    height: 3,
-                    points: [
-                        [0.0, 0.0], [0.5, 0.0], [1.0, 0.0],
-                        [0.0, 0.5], [0.5, 0.5], [1.0, 0.5],
-                        [0.0, 1.0], [0.5, 1.0], [1.0, 1.0]
-                    ],
-                    colors: [
-                        .red, .blue, .cyan,
-                        .pink, .yellow, .green,
-                        .yellow, .purple, .pink
-                    ]
-                )
-
-                if let coverURL = player.coverURL(for: track) {
-                    AsyncImage(url: coverURL) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFill()
-                        case .failure:
-                            Image(systemName: "music.pages")
-                                .font(.title2)
-                                .foregroundStyle(.primary)
-                        default:
-                            ProgressView()
-                        }
-                    }
-                    .frame(width: 35, height: 35)
-                } else {
-                    Image(systemName: "music.pages")
-                        .font(.title2)
-                        .foregroundStyle(.primary)
-                }
-            }
-            .frame(width: 35, height: 35)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            
-            // Track info
+          
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title)
                     .font(.body)
@@ -68,23 +27,35 @@ struct TrackRow: View {
             }
             
             Spacer()
-            // Duration and play indicator
             HStack(spacing: 8) {
                 Text(track.durationText)
                     .font(.caption)
                     .foregroundStyle(isCurrent ? .blue : .primary)
                     .monospacedDigit()
-                
-                if isPlaying {
-                    Image(systemName: "waveform")
-                        .foregroundStyle(.blue)
-                        .scaleEffect(1)
-                        .symbolEffect(.variableColor.iterative.reversing)
-                }
             }
-        }
-        .task(id: track.id) {
-            player.requestCoverIfNeeded(for: track)
         }
     }
 }
+
+#Preview("TrackRow") {
+    let sampleTracks: [Track] = [
+        Track(artist: "Daft Punk", title: "Harder, Better, Faster, Stronger", duration: 224, key: "t1"),
+        Track(artist: "Radiohead", title: "Karma Police", duration: 262, key: "t2"),
+        Track(artist: "Nirvana", title: "Smells Like Teen Spirit", duration: 301, key: "t3"),
+        Track(artist: "Beyoncé", title: "Halo", duration: 261, key: "t4"),
+        Track(artist: "The Weeknd", title: "Blinding Lights", duration: 200, key: "t5")
+    ]
+
+    let player = AudioPlayerService.shared
+    // Configure preview so the first sample track is playing
+    player.setQueue(sampleTracks, startAt: sampleTracks[0])
+    player.play(track: sampleTracks[0])
+
+    return List {
+        ForEach(sampleTracks) { track in
+            TrackRow(track: track)
+        }
+    }
+    .environmentObject(player)
+}
+

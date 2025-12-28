@@ -7,13 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		C28E80D32F09119D00A8581E /* ShazamKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C28E80D22F09119D00A8581E /* ShazamKit.framework */; };
+		C2513B682F0D819800DD0517 /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C2513B672F0D819800DD0517 /* ActivityKit.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
+		C2513B6A2F0D82A100DD0517 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C2513B692F0D82A100DD0517 /* WebKit.framework */; };
+		C2513B6C2F0D82C400DD0517 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C2513B6B2F0D82C400DD0517 /* WidgetKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		C26A68092F0BB732007B5656 /* libswiftShazamKit.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libswiftShazamKit.tbd; path = usr/lib/swift/libswiftShazamKit.tbd; sourceTree = SDKROOT; };
+		C2513B672F0D819800DD0517 /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = SDKROOT; };
+		C2513B692F0D82A100DD0517 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		C2513B6B2F0D82C400DD0517 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		C278F7AA2EC8595E00E8A8CC /* LOAD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LOAD.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		C28E80D22F09119D00A8581E /* ShazamKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ShazamKit.framework; path = System/Library/Frameworks/ShazamKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -42,18 +45,30 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C28E80D32F09119D00A8581E /* ShazamKit.framework in Frameworks */,
+				C2513B6C2F0D82C400DD0517 /* WidgetKit.framework in Frameworks */,
+				C2513B6A2F0D82A100DD0517 /* WebKit.framework in Frameworks */,
+				C2513B682F0D819800DD0517 /* ActivityKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		C2513B662F0D819800DD0517 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				C2513B6B2F0D82C400DD0517 /* WidgetKit.framework */,
+				C2513B692F0D82A100DD0517 /* WebKit.framework */,
+				C2513B672F0D819800DD0517 /* ActivityKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		C278F7A12EC8595E00E8A8CC = {
 			isa = PBXGroup;
 			children = (
 				C278F7AC2EC8595E00E8A8CC /* LOAD */,
-				C28E80D12F09119D00A8581E /* Frameworks */,
+				C2513B662F0D819800DD0517 /* Frameworks */,
 				C278F7AB2EC8595E00E8A8CC /* Products */,
 			);
 			sourceTree = "<group>";
@@ -64,15 +79,6 @@
 				C278F7AA2EC8595E00E8A8CC /* LOAD.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		C28E80D12F09119D00A8581E /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				C26A68092F0BB732007B5656 /* libswiftShazamKit.tbd */,
-				C28E80D22F09119D00A8581E /* ShazamKit.framework */,
-			);
-			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -295,7 +301,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarHidden = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -334,7 +340,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarHidden = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
