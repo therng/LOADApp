@@ -16,6 +16,7 @@ struct Track: Identifiable, Codable, Hashable {
     }
 }
 
+
 // MARK: - Search Response
 
 struct SearchResponse: Codable {
