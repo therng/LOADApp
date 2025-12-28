@@ -6,5 +6,9 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict/>
+	</array>
 </dict>
 </plist>

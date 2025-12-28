@@ -22,28 +22,11 @@ final class ShazamMP3CoverMatcher: NSObject {
 
     private static func fetchCoverURL(from downloadURL: URL) async -> URL? {
         do {
-            // 1) หา total bytes แบบ robust:
-            //    - ลอง HEAD ก่อน
-            //    - ถ้าไม่ได้ ให้ยิง Range 0-0 แล้วอ่าน Content-Range
-            let totalBytes = try await fetchTotalBytes(for: downloadURL)
-            guard totalBytes > 0 else {
-                return nil
-            }
-
-            // 2) โหลดประมาณ 20 วิแถว ๆ กลางไฟล์ (ประมาณคร่าว ๆ ก็พอ)
+            // 1) Pull the beginning so the file has a valid header to decode.
             //    160kbps ≈ 20KB/s
             let bytesPerSecond: Int64 = 20_000
             let chunkSize: Int64 = bytesPerSecond * 20
-
-            let mid = totalBytes / 2
-            let start = max(0, mid - chunkSize / 2)
-            let end = min(totalBytes - 1, start + chunkSize)
-
-            var req = URLRequest(url: downloadURL)
-            req.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
-
-            let (data, _) = try await URLSession.shared.data(for: req)
-            if data.isEmpty {
+            guard let data = try await fetchAudioSample(from: downloadURL, maxBytes: chunkSize) else {
                 return nil
             }
 
@@ -61,38 +44,17 @@ final class ShazamMP3CoverMatcher: NSObject {
         }
     }
 
-    private static func fetchTotalBytes(for url: URL) async throws -> Int64 {
-        // Try HEAD
-        do {
-            var head = URLRequest(url: url)
-            head.httpMethod = "HEAD"
-            let (_, resp) = try await URLSession.shared.data(for: head)
-            if let http = resp as? HTTPURLResponse,
-               let len = http.value(forHTTPHeaderField: "Content-Length"),
-               let n = Int64(len),
-               n > 0 {
-                return n
-            }
-        } catch {
-            // fallthrough
-        }
-
-        // Fallback: Range 0-0 to obtain Content-Range: "bytes 0-0/12345"
+    private static func fetchAudioSample(from url: URL, maxBytes: Int64) async throws -> Data? {
         var req = URLRequest(url: url)
-        req.setValue("bytes=0-0", forHTTPHeaderField: "Range")
-        let (_, resp) = try await URLSession.shared.data(for: req)
+        req.setValue("bytes=0-\(maxBytes - 1)", forHTTPHeaderField: "Range")
 
-        guard let http = resp as? HTTPURLResponse,
-              let cr = http.value(forHTTPHeaderField: "Content-Range") else {
-            return 0
-        }
+        let (data, _) = try await URLSession.shared.data(for: req)
+        guard !data.isEmpty else { return nil }
 
-        // Parse ".../TOTAL"
-        if let slash = cr.lastIndex(of: "/") {
-            let totalStr = cr[cr.index(after: slash)...]
-            return Int64(totalStr) ?? 0
+        if data.count > Int(maxBytes) {
+            return Data(data.prefix(Int(maxBytes)))
         }
-        return 0
+        return data
     }
 }
 

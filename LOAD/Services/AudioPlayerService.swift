@@ -48,7 +48,7 @@ final class AudioPlayerService: ObservableObject {
     // Up Next queue (autoplay)
     @Published private(set) var queue: [Track] = []
     @Published private(set) var queueIndex: Int? = nil
-    @Published private(set) var coverCache: [Int: URL] = [:]
+    @Published private(set) var coverCache: [String: URL] = [:]
 
     var currentTrack: Track? { state.track }
     var isPlaying: Bool { state.isPlaying }
@@ -65,8 +65,8 @@ final class AudioPlayerService: ObservableObject {
     private var timeObserverToken: Any?
     private var interruptionObserverToken: Any?
     private let audioSession = AVAudioSession.sharedInstance()
-    private var coverRequests: Set<Int> = []
-    private var coverFailures: Set<Int> = []
+    private var coverRequests: Set<String> = []
+    private var coverFailures: Set<String> = []
 
     // MARK: - Init
 

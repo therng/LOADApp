@@ -2,7 +2,7 @@ import SwiftUI
     
 struct MiniPlayerView: View {
     @EnvironmentObject var player: AudioPlayerService
-    @State private var showFullPlayer = false
+    @Binding var isFullPlayerPresented: Bool
     
     var body: some View {
         HStack(spacing: 4) {
@@ -68,16 +68,13 @@ struct MiniPlayerView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            showFullPlayer = true
+            isFullPlayerPresented = true
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 12)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.1), radius: 10, y: 5)
         .background(.ultraThinMaterial)
-        .sheet(isPresented: $showFullPlayer) {
-            FullPlayerView()
-        }
         .task(id: player.currentTrack?.id) {
             if let track = player.currentTrack {
                 player.requestCoverIfNeeded(for: track)

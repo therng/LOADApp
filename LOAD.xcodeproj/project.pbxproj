@@ -11,6 +11,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		C26A68092F0BB732007B5656 /* libswiftShazamKit.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libswiftShazamKit.tbd; path = usr/lib/swift/libswiftShazamKit.tbd; sourceTree = SDKROOT; };
 		C278F7AA2EC8595E00E8A8CC /* LOAD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LOAD.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C28E80D22F09119D00A8581E /* ShazamKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ShazamKit.framework; path = System/Library/Frameworks/ShazamKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
@@ -68,6 +69,7 @@
 		C28E80D12F09119D00A8581E /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				C26A68092F0BB732007B5656 /* libswiftShazamKit.tbd */,
 				C28E80D22F09119D00A8581E /* ShazamKit.framework */,
 			);
 			name = Frameworks;

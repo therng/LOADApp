@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var player: AudioPlayerService
     @State private var selectedTab = 0
+    @State private var isFullPlayerPresented = false
     
     var body: some View {
         TabView(selection: $selectedTab){
@@ -22,9 +23,12 @@ struct ContentView: View {
         .tabViewStyle(.sidebarAdaptable)
         .tabBarMinimizeBehavior(.onScrollDown)
         .tabViewBottomAccessory(isEnabled: selectedTab != 0 && player.currentTrack != nil) {
-                MiniPlayerView()
-            }
+            MiniPlayerView(isFullPlayerPresented: $isFullPlayerPresented)
+        }
+        .sheet(isPresented: $isFullPlayerPresented) {
+            FullPlayerView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
-    
-
+}

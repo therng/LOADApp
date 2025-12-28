@@ -7,7 +7,7 @@ struct SearchView: View {
     @State private var tracks: [Track] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @FocusState private var isSearchFocused: Bool
+    @FocusState var isSearchFocused: Bool
     @State private var safariURL: URL?
     @State private var safariDetent: PresentationDetent = .medium
 
@@ -24,18 +24,17 @@ struct SearchView: View {
                     trackList
                 }
             }
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
-            .searchFocused($isSearchFocused)
+            .searchable(text: $searchText, placement: .automatic)
+            .onChange(of: isSearchFocused) { _, newValue in
+                // When the search field becomes presented, automatically focus it
+                if newValue {
+                    isSearchFocused = true
+                }
+            }
             .onSubmit(of: .search) {
-                isSearchFocused = false
                 performSearch()
             }
-            .navigationTitle("Search")
-            .navigationBarTitleDisplayMode(.inline)
-            .tabBarMinimizeBehavior(isSearchFocused ? .never : .onScrollDown)
-            .onAppear {
-                isSearchFocused = false
-            }
+            .navigationTitle(searchText.isEmpty ? "Search" : searchText)
             .sheet(
                 isPresented: Binding(
                     get: { safariURL != nil },
@@ -86,7 +85,7 @@ struct SearchView: View {
                     .listRowBackground(Color.clear)
             }
         }
-        .listStyle(.plain)
+        .listStyle(.automatic)
     }
 
     private var loadingView: some View {
