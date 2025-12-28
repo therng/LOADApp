@@ -6,8 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		C28E80D32F09119D00A8581E /* ShazamKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C28E80D22F09119D00A8581E /* ShazamKit.framework */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		C278F7AA2EC8595E00E8A8CC /* LOAD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LOAD.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C28E80D22F09119D00A8581E /* ShazamKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ShazamKit.framework; path = System/Library/Frameworks/ShazamKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -36,6 +41,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C28E80D32F09119D00A8581E /* ShazamKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -46,6 +52,7 @@
 			isa = PBXGroup;
 			children = (
 				C278F7AC2EC8595E00E8A8CC /* LOAD */,
+				C28E80D12F09119D00A8581E /* Frameworks */,
 				C278F7AB2EC8595E00E8A8CC /* Products */,
 			);
 			sourceTree = "<group>";
@@ -56,6 +63,14 @@
 				C278F7AA2EC8595E00E8A8CC /* LOAD.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		C28E80D12F09119D00A8581E /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				C28E80D22F09119D00A8581E /* ShazamKit.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -274,11 +289,11 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = LOAD/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = LOAD;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarHidden = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -313,11 +328,11 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = LOAD/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = LOAD;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarHidden = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

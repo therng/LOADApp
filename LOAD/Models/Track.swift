@@ -32,3 +32,13 @@ struct HistoryItem: Codable {
     let search_id: String
     let query: String
 }
+extension TimeInterval {
+    /// Formats a time interval (seconds) as m:ss
+    var mmss: String {
+        let total = Int(self)
+        let mins = total / 60
+        let secs = total % 60
+        return String(format: "%d:%02d", mins, secs)
+    }
+}
+

@@ -48,9 +48,14 @@ final class AudioPlayerService: ObservableObject {
     // Up Next queue (autoplay)
     @Published private(set) var queue: [Track] = []
     @Published private(set) var queueIndex: Int? = nil
+    @Published private(set) var coverCache: [Int: URL] = [:]
 
     var currentTrack: Track? { state.track }
     var isPlaying: Bool { state.isPlaying }
+    var currentCoverURL: URL? {
+        guard let track = state.track else { return nil }
+        return coverCache[track.id]
+    }
 
     let playbackFinished = PassthroughSubject<Void, Never>()
 
@@ -60,6 +65,8 @@ final class AudioPlayerService: ObservableObject {
     private var timeObserverToken: Any?
     private var interruptionObserverToken: Any?
     private let audioSession = AVAudioSession.sharedInstance()
+    private var coverRequests: Set<Int> = []
+    private var coverFailures: Set<Int> = []
 
     // MARK: - Init
 
@@ -136,6 +143,8 @@ final class AudioPlayerService: ObservableObject {
             queueIndex = nil
         }
 
+        requestCoverIfNeeded(for: track)
+
         state = .loading(track)
         startNewPlayer(with: track)
     }
@@ -185,6 +194,26 @@ final class AudioPlayerService: ObservableObject {
     }
 
     // MARK: - Private Helpers
+
+    func coverURL(for track: Track) -> URL? {
+        coverCache[track.id]
+    }
+
+    func requestCoverIfNeeded(for track: Track) {
+        if coverCache[track.id] != nil { return }
+        if coverFailures.contains(track.id) || coverRequests.contains(track.id) { return }
+
+        coverRequests.insert(track.id)
+        ShazamMP3CoverMatcher.shared.matchCover(from: track.download) { [weak self] url in
+            guard let self else { return }
+            self.coverRequests.remove(track.id)
+            if let url {
+                self.coverCache[track.id] = url
+            } else {
+                self.coverFailures.insert(track.id)
+            }
+        }
+    }
 
     private func nextTrack(advance: Bool) -> Track? {
         guard !queue.isEmpty else { return nil }
@@ -247,27 +276,31 @@ final class AudioPlayerService: ObservableObject {
         updateNowPlayingRate(1.0)
     }
 
-    private func setupTimeObserver(for player: AVPlayer) {
-        if let token = timeObserverToken {
-            player.removeTimeObserver(token)
+    private func setupTimeObserver(for newPlayer: AVPlayer) {
+        // token ผูกกับ player ตัวเดิม ต้องลบจากตัวเดิมก่อน
+        if let token = timeObserverToken, let oldPlayer = self.player {
+            oldPlayer.removeTimeObserver(token)
             timeObserverToken = nil
         }
-        timeObserverToken = player.addPeriodicTimeObserver(
+
+        timeObserverToken = newPlayer.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC)),
             queue: .main
         ) { [weak self] time in
             let secondsCopy = CMTimeGetSeconds(time)
+
             Task { @MainActor [weak self] in
-                guard let self, let player = self.player else { return }
-                let seconds = secondsCopy
-                if seconds.isFinite {
-                    self.currentTime = seconds
-                    self.updateNowPlayingElapsedTime(seconds)
+                guard let self else { return }
+                if secondsCopy.isFinite {
+                    self.currentTime = secondsCopy
+                    self.updateNowPlayingElapsedTime(secondsCopy)
                 }
-                if let item = player.currentItem {
-                    let durationSeconds = CMTimeGetSeconds(item.duration)
-                    if durationSeconds.isFinite && durationSeconds > 0 {
-                        self.duration = durationSeconds
+
+                // HLS duration อาจมาช้า อัปเดตเมื่อเริ่มอ่านได้
+                if let item = self.player?.currentItem {
+                    let d = CMTimeGetSeconds(item.duration)
+                    if d.isFinite && d > 0 {
+                        self.duration = d
                     }
                 }
             }
@@ -327,24 +360,20 @@ final class AudioPlayerService: ObservableObject {
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
-
                 guard let typeNumber,
-                      let type = AVAudioSession.InterruptionType(rawValue: typeNumber.uintValue) else {
-                    return
-                }
+                      let type = AVAudioSession.InterruptionType(rawValue: typeNumber.uintValue) else { return }
 
                 switch type {
                 case .began:
-                    if self.isPlaying {
-                        self.pause()
-                    }
+                    if self.isPlaying { self.pause() }
 
                 case .ended:
                     let optionsRaw = optionsNumber?.uintValue ?? 0
                     let options = AVAudioSession.InterruptionOptions(rawValue: optionsRaw)
+
                     if options.contains(.shouldResume),
-                       case let .paused(track) = self.state {
-                        self.play(track: track)
+                       case .paused = self.state {
+                        self.resume()
                     }
 
                 @unknown default:
@@ -511,4 +540,3 @@ final class AudioPlayerService: ObservableObject {
         playbackFinished.send()
     }
 }
-
