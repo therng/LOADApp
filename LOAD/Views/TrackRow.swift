@@ -56,11 +56,19 @@ struct TrackRow: View {
             
             // Track info
             VStack(alignment: .leading, spacing: 2) {
-                Text(track.title)
-                    .font(.body)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                    .foregroundStyle(isCurrent ? .blue : .primary)
+                HStack(spacing: 6) {
+                    if isPlaying {
+                        Image(systemName: "waveform")
+                            .foregroundStyle(.blue)
+                            .symbolEffect(.variableColor.iterative.reversing)
+                    }
+
+                    Text(track.title)
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                        .foregroundStyle(isCurrent ? .blue : .primary)
+                }
                 Text(track.artist)
                     .font(.subheadline)
                     .foregroundStyle(isCurrent ? .blue : .secondary)
@@ -74,13 +82,6 @@ struct TrackRow: View {
                     .font(.caption)
                     .foregroundStyle(isCurrent ? .blue : .primary)
                     .monospacedDigit()
-                
-                if isPlaying {
-                    Image(systemName: "waveform")
-                        .foregroundStyle(.blue)
-                        .scaleEffect(1)
-                        .symbolEffect(.variableColor.iterative.reversing)
-                }
             }
         }
         .task(id: track.id) {

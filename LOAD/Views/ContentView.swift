@@ -6,41 +6,47 @@ struct ContentView: View {
     
     var body: some View {
         TabView(selection: $selectedTab){
-            Tab("Queue", systemImage: "list.bullet.rectangle.portrait", value: 0) {
+            Tab("Player", systemImage: "play.house", value: 0) {
+                FullPlayerView()
+            }
+            Tab("Queue", systemImage: "list.bullet.rectangle.portrait", value: 1) {
                 QueueView()
             }
-            Tab("Search", systemImage: "magnifyingglass", value: 1, role: .search ) {
+            Tab("Search", systemImage: "magnifyingglass", value: 2, role: .search ) {
                 SearchView()
             }
         }
         .tabViewStyle(.sidebarAdaptable)
         .tabBarMinimizeBehavior(.onScrollDown)
-        .tabViewBottomAccessory(content: CustomAccessoryView.init)
+        .tabViewBottomAccessory {
+            CustomAccessoryView(selectedTab: $selectedTab)
+        }
     }
 }
 
 struct CustomAccessoryView: View {
     @EnvironmentObject var player: AudioPlayerService
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
-    @State private var isNowPlayingPresented = false
+    @Binding var selectedTab: Int
+
+    private let playerTabIndex = 0
 
     var body: some View {
         Group {
             if player.currentTrack != nil {
                 switch placement {
                 case .expanded:
-                    MiniPlayerView(isFullPlayerPresented: $isNowPlayingPresented)
+                    MiniPlayerView {
+                        selectedTab = playerTabIndex
+                    }
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, 12)
                 default:
-                    MiniPlayerView(isFullPlayerPresented: $isNowPlayingPresented)
+                    MiniPlayerView {
+                        selectedTab = playerTabIndex
+                    }
                 }
             }
-        }
-        .sheet(isPresented: $isNowPlayingPresented) {
-            FullPlayerView()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
         }
     }
 }

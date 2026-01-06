@@ -2,7 +2,7 @@ import SwiftUI
     
 struct MiniPlayerView: View {
     @EnvironmentObject var player: AudioPlayerService
-    @Binding var isFullPlayerPresented: Bool
+    let onTap: () -> Void
     
     var body: some View {
         HStack(spacing: 4) {
@@ -47,10 +47,18 @@ struct MiniPlayerView: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .padding(.horizontal, 4)
             if let track = player.currentTrack {
-                Text(track.title)
-                    .font(.body)
-                    .fontWeight(.regular)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if player.isPlaying {
+                        Image(systemName: "waveform")
+                            .foregroundStyle(.blue)
+                            .symbolEffect(.variableColor.iterative.reversing)
+                    }
+
+                    Text(track.title)
+                        .font(.body)
+                        .fontWeight(.regular)
+                        .lineLimit(1)
+                }
             }
             Spacer()
             Button {
@@ -68,7 +76,7 @@ struct MiniPlayerView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            isFullPlayerPresented = true
+            onTap()
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 12)
