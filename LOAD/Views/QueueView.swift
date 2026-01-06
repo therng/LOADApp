@@ -2,6 +2,7 @@ import SwiftUI
 
 struct QueueView: View {
     @EnvironmentObject var player: AudioPlayerService
+    @State private var isHistoryPresented = false
     
     var body: some View {
         NavigationStack {
@@ -13,6 +14,16 @@ struct QueueView: View {
                 }
             }
             .navigationTitle("Up Next")
+            .toolbar {
+                Button("History", systemImage: "clock.arrow.circlepath") {
+                    isHistoryPresented = true
+                }
+            }
+            .sheet(isPresented: $isHistoryPresented) {
+                HistoryView()
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
         }
     }
     

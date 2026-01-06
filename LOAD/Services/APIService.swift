@@ -45,10 +45,6 @@ final class APIService {
         }
     }
     
-    struct DeleteResponse: Decodable {
-        let deleted_count: Int
-    }
-
     private var currentSearchTask: Task<SearchResponse, Error>?
     
     // MARK: - Warmup
@@ -114,18 +110,18 @@ final class APIService {
     }
     
     // MARK: - Delete History
-    func deleteAllHistory() async throws -> DeleteResponse {
+    func deleteAllHistory() async throws {
         guard let url = URL(string: "\(endpointBase)/delete") else {
             throw APIError.invalidURL
         }
-        return try await request(url: url, method: "DELETE")
+        try await request(url: url, method: "DELETE")
     }
 
-    func deleteHistoryItem(id: String) async throws -> DeleteResponse {
+    func deleteHistoryItem(id: String) async throws {
         guard let url = URL(string: "\(endpointBase)/delete/\(id)") else {
             throw APIError.invalidURL
         }
-        return try await request(url: url, method: "DELETE")
+        try await request(url: url, method: "DELETE")
     }
     
     // MARK: - Core Request (Generic, method)

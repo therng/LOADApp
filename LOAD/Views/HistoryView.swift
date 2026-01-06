@@ -93,7 +93,7 @@ struct HistoryView: View {
         Task {
             do {
                 print("[HistoryView] Clearing all history…")
-                _ = try await APIService.shared.deleteAllHistory()
+                try await APIService.shared.deleteAllHistory()
                 await MainActor.run {
                     withAnimation {
                         historyItems = []
@@ -114,7 +114,7 @@ struct HistoryView: View {
         Task {
             do {
                 print("[HistoryView] Deleting item id=\(item.search_id)")
-                _ = try await APIService.shared.deleteHistoryItem(id: item.search_id)
+                try await APIService.shared.deleteHistoryItem(id: item.search_id)
                 await MainActor.run {
                     withAnimation {
                         historyItems.removeAll { $0.search_id == item.search_id }
