@@ -3,7 +3,6 @@ import SwiftUI
 struct SearchView: View {
     @EnvironmentObject var player: AudioPlayerService
 
-    @StateObject private var searchHistory = SearchHistoryService.shared
     @State private var searchText = ""
     @State private var tracks: [Track] = []
     @State private var isLoading = false
@@ -11,16 +10,6 @@ struct SearchView: View {
     @FocusState var isSearchFocused: Bool
     @State private var safariURL: URL?
     @State private var safariDetent: PresentationDetent = .medium
-    @State private var showClearRecentAlert = false
-
-    private let suggestedQueries = [
-        "Chill beats",
-        "Night drive",
-        "Acoustic covers",
-        "Focus playlist",
-        "Throwback hits",
-        "Workout energy"
-    ]
 
     var body: some View {
         NavigationStack {
@@ -29,9 +18,7 @@ struct SearchView: View {
                     loadingView
                 } else if let error = errorMessage {
                     errorView(error)
-                } else if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    discoveryList
-                } else if tracks.isEmpty {
+                } else if tracks.isEmpty && !searchText.isEmpty {
                     emptyView
                 } else {
                     trackList
@@ -40,12 +27,6 @@ struct SearchView: View {
             .searchable(text: $searchText, placement: .automatic)
             .onSubmit(of: .search) {
                 performSearch()
-            }
-            .onChange(of: searchText) { newValue in
-                if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    tracks = []
-                    errorMessage = nil
-                }
             }
             .sheet(
                 isPresented: Binding(
@@ -59,98 +40,6 @@ struct SearchView: View {
                         .presentationDragIndicator(.visible)
                 }
             }
-        }
-    }
-
-    private var discoveryList: some View {
-        List {
-            if searchHistory.recentQueries.isEmpty {
-                Section {
-                    ContentUnavailableView {
-                        Label("No recent searches", systemImage: "clock")
-                    } description: {
-                        Text("Search for artists, tracks, or playlists to see them here.")
-                    }
-                }
-            } else {
-                Section {
-                    ForEach(searchHistory.recentQueries, id: \.self) { query in
-                        Button {
-                            startSearch(query)
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "clock")
-                                    .foregroundStyle(.secondary)
-                                Text(query)
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "arrow.up.left")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button("Remove", systemImage: "trash", role: .destructive) {
-                                searchHistory.remove(query)
-                            }
-                        }
-                    }
-                } header: {
-                    HStack {
-                        Text("Recent Searches")
-                        Spacer()
-                        Button("Clear") {
-                            showClearRecentAlert = true
-                        }
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    }
-                    .textCase(nil)
-                }
-            }
-
-            Section {
-                ForEach(suggestedQueries, id: \.self) { suggestion in
-                    Button {
-                        startSearch(suggestion)
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "sparkles")
-                                .foregroundStyle(.secondary)
-                            Text(suggestion)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: "magnifyingglass")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            } header: {
-                Text("Suggested Searches")
-            }
-
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Use keywords like mood, genre, or activity.", systemImage: "lightbulb")
-                    Label("Try combining artist + vibe, e.g. “Lofi study.”", systemImage: "wand.and.stars")
-                    Label("Tap the play button on any result to queue quickly.", systemImage: "play.circle")
-                }
-                .foregroundStyle(.secondary)
-                .font(.subheadline)
-                .padding(.vertical, 4)
-            } header: {
-                Text("Search Tips")
-            }
-        }
-        .listStyle(.insetGrouped)
-        .alert("Clear recent searches?", isPresented: $showClearRecentAlert) {
-            Button("Clear All", role: .destructive) {
-                searchHistory.clear()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will remove the recent searches shown on this device.")
         }
     }
 
@@ -227,24 +116,15 @@ struct SearchView: View {
         .frame(maxHeight: .infinity)
     }
     private func performSearch() {
-        startSearch(searchText)
-    }
-
-    private func startSearch(_ query: String) {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
 
-        if searchText != q {
-            searchText = q
-        }
         isLoading = true
         errorMessage = nil
-        tracks = []
         Task {
             do {
                 tracks = try await APIService.shared.searchTracks(query: q)
                 isLoading = false
-                searchHistory.add(q)
             } catch {
                 errorMessage = error.localizedDescription
                 isLoading = false
