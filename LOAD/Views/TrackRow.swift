@@ -1,6 +1,7 @@
 import SwiftUI
 struct TrackRow: View {
     let track: Track
+    var isDimmed: Bool = false
     @EnvironmentObject var player: AudioPlayerService
     
     var isCurrent: Bool {
@@ -10,19 +11,26 @@ struct TrackRow: View {
     var isPlaying: Bool {
         isCurrent && player.isPlaying
     }
+
+    private var nonCurrentPrimary: Color {
+        isDimmed ? .secondary : .primary
+    }
+
+    private var nonCurrentSecondary: Color {
+        isDimmed ? .secondary : .secondary
+    }
     
     var body: some View {
         HStack(spacing: 12) {
-          
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(track.title)
                     .font(.body)
                     .fontWeight(.medium)
                     .lineLimit(1)
-                    .foregroundStyle(isCurrent ? .blue : .primary)
+                    .foregroundStyle(isCurrent ? .blue : nonCurrentPrimary)
                 Text(track.artist)
                     .font(.subheadline)
-                    .foregroundStyle(isCurrent ? .blue : .secondary)
+                    .foregroundStyle(isCurrent ? .blue : nonCurrentSecondary)
                     .lineLimit(1)
             }
             
@@ -30,7 +38,7 @@ struct TrackRow: View {
             HStack(spacing: 8) {
                 Text(track.durationText)
                     .font(.caption)
-                    .foregroundStyle(isCurrent ? .blue : .primary)
+                    .foregroundStyle(isCurrent ? .blue : nonCurrentPrimary)
                     .monospacedDigit()
             }
         }
@@ -58,4 +66,3 @@ struct TrackRow: View {
     }
     .environmentObject(player)
 }
-

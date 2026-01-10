@@ -21,24 +21,28 @@ struct MiniPlayerView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .onTapGesture {
+                Haptics.selection()
                 isFullPlayerPresented = true
             }
         default:
-            HStack(spacing: 4){
+            HStack(spacing:12){
                 Image(systemName: "waveform")
                     .scaleEffect(1)
-                .symbolEffect(.variableColor.cumulative.reversing, options: .repeating.speed(0.8))
+                    .symbolEffect(.variableColor.cumulative.reversing, options: .repeating.speed(1.5))
+                    .foregroundStyle(player.isPlaying ? .blue : .primary)
                titleView
                     .scaleEffect(1)
                 Button(action: player.togglePlayPause) {
                         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 18))
+                            .font(.system(size: 20))
+                            .foregroundColor(.primary)
                     }
                 }
             
-                .padding(.horizontal,14)
+                .padding(.horizontal,20)
                 .padding(.vertical, 10)
                 .onTapGesture {
+                    Haptics.selection()
                     isFullPlayerPresented = true
                 }
             }
@@ -75,12 +79,18 @@ struct MiniPlayerView: View {
 
     private var controlsView: some View {
         HStack(spacing: 16) {
-            Button(action: player.togglePlayPause) {
+            Button(action: {
+                Haptics.impact()
+                player.togglePlayPause()
+            }) {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 22))
             }
 
-            Button(action: player.playNext) {
+            Button(action: {
+                Haptics.impact()
+                player.playNext()
+            }) {
                 Image(systemName: "forward.fill")
                     .font(.system(size: 22))
             }
