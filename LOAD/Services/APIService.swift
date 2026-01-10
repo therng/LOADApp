@@ -97,6 +97,15 @@ final class APIService {
         let response = try await search(query: query)
         return response.results
     }
+
+    // MARK: - Track Lookup
+    func fetchTrack(key: String) async throws -> Track {
+        guard let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "\(endpointBase)/track/\(encoded)") else {
+            throw APIError.invalidURL
+        }
+        return try await request(url: url)
+    }
     
     // MARK: - History
     func fetchHistory() async throws -> [HistoryItem] {
@@ -267,4 +276,3 @@ final class APIService {
         return formatter
     }()
 }
-

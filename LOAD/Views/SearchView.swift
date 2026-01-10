@@ -1,32 +1,85 @@
 import SwiftUI
 
+private struct SuffixSuggestion: Identifiable, Hashable {
+    let id: String
+    let display: String
+    let completion: String
+}
+
 struct SearchView: View {
     @EnvironmentObject var player: AudioPlayerService
 
     @State private var searchText = ""
-    @State private var tracks: [Track] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @FocusState var isSearchFocused: Bool
+    @State private var isSearchPresented = true
     @State private var safariURL: URL?
     @State private var safariDetent: PresentationDetent = .medium
+    @State private var presentedSearchId: String?
+    private let listSpacing: CGFloat = 12
+//    private let suffixSuggestions: [SuffixSuggestion] = [
+//        .init(id: "extended", display: "Extended", completion: "(Extended Mix)"),
+//        .init(id: "remix", display: "Remix", completion: "(Extended Remix)"),
+//        .init(id: "bootleg", display: "Bootleg", completion: "Bootleg")
+//    ]
+
+    private var trimmedQuery: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasQuery: Bool {
+        !trimmedQuery.isEmpty
+    }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
+            VStack(spacing: 4) {
                 if isLoading {
                     loadingView
                 } else if let error = errorMessage {
                     errorView(error)
-                } else if tracks.isEmpty && !searchText.isEmpty {
+                } else if !searchText.isEmpty {
                     emptyView
-                } else {
-                    trackList
                 }
             }
-            .searchable(text: $searchText, placement: .automatic)
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
+            .searchToolbarBehavior(.minimize)
+            .searchable(
+                text: $searchText,
+                isPresented: $isSearchPresented,
+                prompt: Text("Search")
+            )
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Button("Extended") {
+                        appendCompletion("(Extended Mix)")
+                    }
+                    Button("Remix") {
+                        appendCompletion("(Extended Remix)")
+                    }
+                    Button("Bootleg") {
+                        appendCompletion("Bootleg")
+                    }
+                }
+            }
             .onSubmit(of: .search) {
+                isSearchFocused = false
+                isSearchPresented = false
                 performSearch()
+            }
+            .navigationDestination(
+                isPresented: Binding(
+                    get: { presentedSearchId != nil },
+                    set: { if !$0 { presentedSearchId = nil } }
+                )
+            ) {
+                if let searchId = presentedSearchId {
+                    HistoryDetailView(searchId: searchId)
+                }
+            }
+            .onChange(of: isSearchPresented) { _, presented in
+                isSearchFocused = presented
             }
             .sheet(
                 isPresented: Binding(
@@ -40,47 +93,10 @@ struct SearchView: View {
                         .presentationDragIndicator(.visible)
                 }
             }
+
         }
     }
-
-    private var trackList: some View {
-        List {
-            ForEach(tracks) { track in
-                TrackRow(track: track)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        // Tap = set queue + play now
-                        player.setQueue(tracks, startAt: track)
-                        player.play(track: track)
-                    }
-                    .contextMenu {
-                        Button("Play Now", systemImage: "play.fill") {
-                            player.setQueue(tracks, startAt: track)
-                            player.play(track: track)
-                        }
-
-                        Button("Play Next", systemImage: "text.insert") {
-                            queueAsNext(track)
-                        }
-
-                        TrackActionMenuItems(track: track) { url in
-                            safariURL = url
-                        }
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button("Save", systemImage: "arrow.down.circle") {
-                            safariURL = track.download
-                        }
-                        .tint(.blue)
-                    }
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                    .listRowBackground(Color.clear)
-            }
-        }
-        .listStyle(.automatic)
-    }
-
+        
     private var loadingView: some View {
         VStack(spacing: 16) {
             ProgressView()
@@ -115,54 +131,50 @@ struct SearchView: View {
         }
         .frame(maxHeight: .infinity)
     }
+
+    private func applySuggestion(_ suggestion: SuffixSuggestion) {
+        guard hasQuery else { return }
+        var next = trimmedQuery
+        if !next.localizedCaseInsensitiveContains(suggestion.completion) {
+            next += " \(suggestion.completion)"
+        }
+        searchText = next
+        isSearchPresented = true
+        Haptics.selection()
+    }
+
+    private func appendCompletion(_ completion: String) {
+        let base = trimmedQuery
+        var next = base
+        if base.isEmpty {
+            next = completion
+        } else if !base.localizedCaseInsensitiveContains(completion) {
+            next = base + " " + completion
+        }
+        searchText = next
+        isSearchPresented = true
+        Haptics.selection()
+    }
+
     private func performSearch() {
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let q = trimmedQuery
         guard !q.isEmpty else { return }
 
         isLoading = true
         errorMessage = nil
+        isSearchPresented = false
+        isSearchFocused = false
         Task {
             do {
-                tracks = try await APIService.shared.searchTracks(query: q)
+                let response = try await APIService.shared.search(query: q)
+                player.addHistory(from: response)
+                presentedSearchId = response.search_id
+                Haptics.impact(.medium)
                 isLoading = false
             } catch {
                 errorMessage = error.localizedDescription
                 isLoading = false
             }
-        }
-    }
-    private func queueAsNext(_ track: Track) {
-        // Base queue: if player already has a queue, use it; otherwise use current search results.
-        var newQueue = player.queue.isEmpty ? tracks : player.queue
-
-        // Remove if already in queue (avoid duplicates)
-        if let existing = newQueue.firstIndex(where: { $0.id == track.id }) {
-            newQueue.remove(at: existing)
-        }
-
-        // Determine current index
-        let current: Track? = player.currentTrack
-        let currentIdx: Int? = {
-            if let idx = player.queueIndex { return idx }
-            if let current, let inferred = newQueue.firstIndex(where: { $0.id == current.id }) { return inferred }
-            return nil
-        }()
-
-        let insertAt: Int = {
-            if let currentIdx {
-                return min(currentIdx + 1, newQueue.count)
-            } else {
-                return min(1, newQueue.count)
-            }
-        }()
-
-        newQueue.insert(track, at: insertAt)
-
-        // Preserve "current track" position if possible
-        if let current {
-            player.setQueue(newQueue, startAt: current)
-        } else {
-            player.setQueue(newQueue, startAt: newQueue.first)
         }
     }
 }

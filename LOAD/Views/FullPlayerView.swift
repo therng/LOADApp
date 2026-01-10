@@ -10,7 +10,6 @@ struct FullPlayerView: View {
 
     var body: some View {
         ZStack {
-         
             GeometryReader { proxy in
                 VStack(spacing: 20) {
                     headerMenu
@@ -58,7 +57,11 @@ struct FullPlayerView: View {
     private var headerMenu: some View {
         NowPlayingHeaderView(
             track: player.currentTrack,
-            onMenuAction: { safariURL = $0 }
+            player: player,
+            onMenuAction: {
+                safariDetent = .medium
+                safariURL = $0
+            }
         )
     }
 
@@ -87,18 +90,28 @@ struct FullPlayerView: View {
 
     private func PlaybackControlsView() -> some View {
         HStack(spacing: 40) {
-            Button(action: player.playPrevious) {
-                Image(systemName: "backward.fill")
+            Button(action: {
+                Haptics.impact()
+                player.playPrevious()
+            }){
+            Image(systemName: "backward.fill")
                     .font(.system(size: 32))
+             
             }
 
-            Button(action: player.togglePlayPause) {
+            Button(action: {
+                Haptics.impact()
+                player.togglePlayPause()
+            }) {
                 Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 64))
                     .symbolEffect(.bounce, value: player.isPlaying)
             }
 
-            Button(action: player.playNext) {
+            Button(action: {
+                Haptics.impact()
+                player.playNext()
+            }) {
                 Image(systemName: "forward.fill")
                     .font(.system(size: 32))
             }
@@ -112,14 +125,33 @@ struct FullPlayerView: View {
 private struct PlaybackProgressView: View {
     @ObservedObject var progress: AudioPlayerService.PlaybackProgress
     let onSeek: (Double) -> Void
+    @State private var isEditing = false
+    @State private var pendingTime: Double?
 
     var body: some View {
+        let sliderBinding = Binding<Double>(
+            get: { pendingTime ?? progress.currentTime },
+            set: { pendingTime = $0 }
+        )
+
         VStack(spacing: 8) {
             Slider(
-                value: Binding(get: { progress.currentTime }, set: onSeek),
-                in: 0...max(progress.duration, 1)
+                value: sliderBinding,
+                in: 0...max(progress.duration, 1),
+                onEditingChanged: { editing in
+                    isEditing = editing
+                    if !editing {
+                        onSeek(pendingTime ?? progress.currentTime)
+                        pendingTime = nil
+                    }
+                }
             )
             .tint(.accentColor)
+            .onChange(of: progress.currentTime) { _, _ in
+                if !isEditing {
+                    pendingTime = nil
+                }
+            }
 
             HStack {
                 Text(progress.currentTime.mmss)
@@ -136,6 +168,7 @@ private struct PlaybackProgressView: View {
 
 private struct NowPlayingHeaderView: View {
     let track: Track?
+    let player: AudioPlayerService
     let onMenuAction: (URL) -> Void
 
     var body: some View {
@@ -149,7 +182,7 @@ private struct NowPlayingHeaderView: View {
 
             Menu {
                 if let track = track {
-                    TrackActionMenuItems(track: track, onSave: onMenuAction)
+                    TrackActionMenuItems(track: track, onSave: onMenuAction, player: player)
                 } else {
                     Button("No Track", systemImage: "music.note") {}
                         .disabled(true)

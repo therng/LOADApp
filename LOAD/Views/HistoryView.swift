@@ -1,17 +1,16 @@
 import SwiftUI
 
 struct HistoryView: View {
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f
+    }()
     @State private var historyItems: [HistoryItem] = []
     @State private var isLoading = false
     @State private var showErrorAlert = false
     @State private var errorMessage: String?
 
-    private static let relativeFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter
-    }()
-    
     var body: some View {
         NavigationStack {
             Group {
@@ -24,21 +23,17 @@ struct HistoryView: View {
                 }
             }
             .navigationTitle("History")
-            .navigationBarTitleDisplayMode(.automatic)
-            .navigationTransition(.automatic)
-            .assistiveAccessNavigationIcon(systemImage: "history")
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     if !historyItems.isEmpty {
-                        Button("Clear", systemImage: "trash") {
+                        Button("Clear", role: .destructive) {
                             clearHistory()
                         }
-                        .tint(.red)
                     }
                 }
             }
             .task {
-                await loadHistory()
+                await loadHistory(force: true)
             }
             .alert("Error", isPresented: $showErrorAlert) {
                 Button("OK", role: .cancel) {}
@@ -47,26 +42,43 @@ struct HistoryView: View {
             }
         }
     }
-    
+
     private var historyList: some View {
         List {
             ForEach(historyItems, id: \.search_id) { item in
                 NavigationLink {
                     HistoryDetailView(searchId: item.search_id)
                 } label: {
-                    VStack(alignment: .leading, spacing: 4) {
+                    HStack {
                         Text(item.query)
+                            .lineLimit(1)
                             .font(.body)
-                            .fontWeight(.medium)
-                        
+                        Spacer()
                         Text(Self.relativeFormatter.localizedString(for: item.timestamp, relativeTo: Date()))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
-                .swipeActions(edge: .trailing) {
-                    Button("Delete", systemImage: "trash", role: .destructive) {
+                .contextMenu {
+                    Button("Retry Search", systemImage: "magnifyingglass.circle") {
+                        Task { await retrySearch(item) }
+                    }
+                }
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    Button {
+                        Task { await addAllToQueue(item) }
+                    } label: {
+                        Image(systemName: "text.badge.plus")
+                            .accessibilityLabel("Add All")
+                    }
+                    .tint(.blue)
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
                         deleteItem(item)
+                    } label: {
+                        Image(systemName: "trash")
+                            .accessibilityLabel("Delete")
                     }
                 }
             }
@@ -76,7 +88,7 @@ struct HistoryView: View {
             await loadHistory(force: true)
         }
     }
-    
+
     private var emptyView: some View {
         ContentUnavailableView {
             Label("No History", systemImage: "clock.arrow.circlepath")
@@ -88,76 +100,91 @@ struct HistoryView: View {
             }
         }
     }
-    
+
+    // MARK: - Actions
+
     private func loadHistory(force: Bool = false) async {
-        let shouldLoad = await MainActor.run { () -> Bool in
-            if isLoading { return false }
-            if !force && !historyItems.isEmpty { return false }
-            isLoading = true
-            errorMessage = nil
-            showErrorAlert = false
-            return true
-        }
-        
-        guard shouldLoad else { return }
-        
+        if isLoading { return }
+        if !force && !historyItems.isEmpty { return }
+
+        isLoading = true
+        errorMessage = nil
+        showErrorAlert = false
+
         do {
             let items = try await APIService.shared.fetchHistory()
-            await MainActor.run {
-                withAnimation {
-                    historyItems = items
-                }
-                isLoading = false
-            }
+            historyItems = items
+            isLoading = false
         } catch {
             if isCancellation(error) {
-                await MainActor.run { isLoading = false }
+                isLoading = false
                 return
             }
-            await MainActor.run {
-                errorMessage = error.localizedDescription
-                showErrorAlert = true
-                isLoading = false
-            }
+            errorMessage = error.localizedDescription
+            showErrorAlert = true
+            isLoading = false
         }
     }
-    
+
     private func clearHistory() {
         Task {
             do {
-                print("[HistoryView] Clearing all history…")
                 _ = try await APIService.shared.deleteAllHistory()
-                await MainActor.run {
-                    withAnimation {
-                        historyItems = []
-                    }
-                }
-                print("[HistoryView] Cleared all history.")
+                historyItems = []
             } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showErrorAlert = true
-                }
+                errorMessage = error.localizedDescription
+                showErrorAlert = true
             }
         }
     }
-    
+
     private func deleteItem(_ item: HistoryItem) {
         Task {
             do {
-                print("[HistoryView] Deleting item id=\(item.search_id)")
                 _ = try await APIService.shared.deleteHistoryItem(id: item.search_id)
-                await MainActor.run {
-                    withAnimation {
-                        historyItems.removeAll { $0.search_id == item.search_id }
-                    }
-                }
-                print("[HistoryView] Deleted item id=\(item.search_id)")
+                historyItems.removeAll { $0.search_id == item.search_id }
             } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showErrorAlert = true
+                errorMessage = error.localizedDescription
+                showErrorAlert = true
+            }
+        }
+    }
+
+    private func retrySearch(_ item: HistoryItem) async {
+        do {
+            let response = try await APIService.shared.fetchSearchResult(id: item.search_id)
+            await MainActor.run {
+                Haptics.impact(.medium)
+                AudioPlayerService.shared.addHistory(from: response)
+                historyItems.removeAll { $0.search_id == item.search_id }
+                historyItems.insert(item, at: 0)
+                AudioPlayerService.shared.setQueue(response.results, startAt: response.results.first)
+                if let first = response.results.first {
+                    AudioPlayerService.shared.play(track: first)
                 }
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                showErrorAlert = true
+            }
+        }
+    }
+
+    private func addAllToQueue(_ item: HistoryItem) async {
+        do {
+            let response = try await APIService.shared.fetchSearchResult(id: item.search_id)
+            await MainActor.run {
+                Haptics.selection()
+                AudioPlayerService.shared.addHistory(from: response)
+                for track in response.results {
+                    AudioPlayerService.shared.addToQueue(track)
+                }
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                showErrorAlert = true
             }
         }
     }
