@@ -390,13 +390,15 @@ final class AudioPlayerService: ObservableObject {
     }
     
     private func ensureContinueQueue(target: Int) async {
-        let needed = target - continueQueue.count
+        let cappedTarget = min(target, 5)
+        let needed = cappedTarget - continueQueue.count
         if needed <= 0 { return }
-        await topUpContinueQueue(target: target)
+        await topUpContinueQueue(target: cappedTarget)
     }
     
     private func topUpContinueQueue(target: Int) async {
         guard userQueue.isEmpty else { return }
+        guard continueQueue.count < 5 else { return }
 
         var queue = continueQueue
         var existingKeys = Set(queue.map(\.id))
@@ -412,7 +414,8 @@ final class AudioPlayerService: ObservableObject {
             guard let searchID = historySearchIDs.randomElement() else { break }
             do {
                 let response = try await APIService.shared.fetchSearchResult(id: searchID)
-                guard let track = response.results.randomElement() else { continue }
+                guard let historyKey = response.results.randomElement()?.key else { continue }
+                let track = try await APIService.shared.fetchTrack(key: historyKey)
                 if existingKeys.contains(track.id) { continue }
                 queue.append(track)
                 existingKeys.insert(track.id)
