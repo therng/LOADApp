@@ -396,6 +396,8 @@ final class AudioPlayerService: ObservableObject {
     }
     
     private func topUpContinueQueue(target: Int) async {
+        guard userQueue.isEmpty else { return }
+
         var queue = continueQueue
         var existingKeys = Set(queue.map(\.id))
         if let currentID = currentTrack?.id {
