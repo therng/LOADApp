@@ -100,8 +100,6 @@
 				C278F7AC2EC8595E00E8A8CC /* LOAD */,
 			);
 			name = LOAD;
-			packageProductDependencies = (
-			);
 			productName = LOAD;
 			productReference = C278F7AA2EC8595E00E8A8CC /* LOAD.app */;
 			productType = "com.apple.product-type.application";

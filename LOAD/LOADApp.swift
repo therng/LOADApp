@@ -1,7 +1,6 @@
 
 import SwiftUI
 
-
 @main
 struct LOADApp: App {
     @StateObject private var player = AudioPlayerService.shared

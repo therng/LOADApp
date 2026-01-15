@@ -6,10 +6,11 @@ struct HistoryDetailView: View {
     @State private var searchResponse: SearchResponse?
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var safariURL: URL?
+    @State private var safariURLItem: SafariURLItem?
     @State private var safariDetent: PresentationDetent = .medium
     @State private var sortOption: SortOption = .relevance
     @State private var isAscending: Bool = true
+    @State private var artistToShow: ArtistDisplayItem?
     
     var body: some View {
         Group {
@@ -38,13 +39,16 @@ struct HistoryDetailView: View {
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         Haptics.impact()
-                                        player.setQueue(results, startAt: track)
-                                        player.play(track: track)
+                                        if let index = results.firstIndex(where: { $0.id == track.id }) {
+                                            player.setQueue(results, startAt: index)
+                                        }
                                     }
                                     .contextMenu {
                                         TrackActionMenuItems(track: track, onSave: { url in
                                             safariDetent = .medium
-                                            safariURL = url
+                                            safariURLItem = SafariURLItem(url: url)
+                                        }, onGoToArtist: { artistName in
+                                            self.artistToShow = ArtistDisplayItem(name: artistName)
                                         }, player: player)
                                     }
                             }
@@ -68,24 +72,21 @@ struct HistoryDetailView: View {
                     sortMenuButtons
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 14, weight: .semibold))
-                        .padding(8)
-                        .contentShape(Rectangle())
+                        .font(.system(size: 20, weight: .semibold))
+                        .contentShape(.circle)
                 }
             }
         }
         .task(id: searchId) {
             await fetch()
         }
-        .sheet(isPresented: Binding(
-            get: { safariURL != nil },
-            set: { if !$0 { safariURL = nil } }
-        )) {
-            if let url = safariURL {
-                SafariView(url: url)
-                    .presentationDetents([.medium, .large], selection: $safariDetent)
-                    .presentationDragIndicator(.visible)
-            }
+        .sheet(item: $safariURLItem) { item in
+            SafariView(url: item.url)
+                .presentationDetents([.medium, .large], selection: $safariDetent)
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $artistToShow) { artistItem in
+            ArtistDetailView(artistName: artistItem.name)
         }
     }
     
@@ -102,8 +103,15 @@ struct HistoryDetailView: View {
                     isAscending = true
                 }
             } label: {
-                let title = option.displayName(isActive: sortOption == option, isAscending: isAscending)
-                Label(title, systemImage: option.systemIcon)
+                let isActive = sortOption == option
+                let title = option.displayName(isActive: isActive, isAscending: isAscending)
+                Label {
+                    Text(title)
+                        .fontWeight(isActive ? .semibold : .regular)
+                } icon: {
+                    Image(systemName: option.systemIcon)
+                        .foregroundStyle(isActive ? .blue : .primary)
+                }
             }
         }
     }
@@ -111,13 +119,12 @@ struct HistoryDetailView: View {
     @MainActor
     private func fetch(force: Bool = false) async {
         guard !isLoading else { return }
-        if searchResponse != nil && !force { return }
         
         isLoading = true
         errorMessage = nil
         
         do {
-            let response = try await APIService.shared.fetchSearchResult(id: searchId)
+            let response = try await APIService.shared.fetchHistoryItem(with: searchId)
             self.searchResponse = response
         } catch is CancellationError {
         } catch {
@@ -126,6 +133,17 @@ struct HistoryDetailView: View {
         
         isLoading = false
     }
+}
+
+// Wrapper struct to make artist name identifiable for navigation
+private struct ArtistDisplayItem: Identifiable, Hashable {
+    let name: String
+    var id: String { name }
+}
+
+private struct SafariURLItem: Identifiable {
+    let id = UUID()
+    let url: URL
 }
 
 private enum SortOption: String, CaseIterable, Identifiable {
@@ -167,3 +185,11 @@ private enum SortOption: String, CaseIterable, Identifiable {
         }
     }
 }
+
+#Preview {
+    NavigationStack {
+        HistoryDetailView(searchId: "696fb2e7cf275cab418ac4ad")
+    }
+    .environmentObject(AudioPlayerService.shared)
+}
+

@@ -1,627 +1,439 @@
 import AVFoundation
 import Combine
 import Foundation
-import MediaPlayer
-@preconcurrency import ActivityKit
 import SwiftUI
+import UIKit
+import CoreImage
 
 @MainActor
-final class AudioPlayerService: ObservableObject {
+final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegate {
+
+    // MARK: - Singleton
     static let shared = AudioPlayerService()
-    
-    // MARK: - Published State
-    
+
+    // MARK: - Public State (UI-facing)
+
+    @Published private(set) var queue: [Track] = []
+    @Published private(set) var currentIndex: Int = 0
     @Published private(set) var currentTrack: Track?
-    @Published private(set) var isPlaying = false
-    @Published private(set) var userQueue: [Track] = []
-    @Published private(set) var continueQueue: [Track] = []
-    @Published private(set) var repeatOne = false
-    @Published private(set) var repeatAll = false
-    @Published private(set) var shuffle = false
-    @Published private(set) var isLoading = false
-    @Published private(set) var errorMessage: String?
-    
-    /// Compatibility helper for existing views.
-    var continuePlaying: [Track] { continueQueue }
-    
-    let progress = PlaybackProgress()
-    
-    // MARK: - Internals
-    
-    private var history: [String] = []
-    private var historySearchIDs: [String] = []
-    private var player: AVPlayer?
-    private var timeObserver: Any?
-    private var endObserver: NSObjectProtocol?
-    private var liveActivityStorage: Any?
-    private var isTopUpInProgress = false
-    
-    @available(iOS 17.0, *)
-    private var nowPlayingActivity: Activity<NowPlayingAttributes>? {
-        get { liveActivityStorage as? Activity<NowPlayingAttributes> }
-        set { liveActivityStorage = newValue }
-    }
-    
-    private enum AdvanceReason {
-        case autoplay
-        case manual
-    }
-    
-    // MARK: - Types
-    
-    final class PlaybackProgress: ObservableObject {
-        @Published var currentTime: Double = 0
-        @Published var duration: Double = 0
-    }
-    
-    @available(iOS 17.0, *)
-    struct NowPlayingAttributes: ActivityAttributes {
-        public struct ContentState: Codable, Hashable {
-            var title: String
-            var artist: String
-            var isPlaying: Bool
-            var elapsed: Double
-            var duration: Double
-        }
-        
-        var trackID: String
-        var title: String
-        var artist: String
-    }
-    
-    // MARK: - Init
-    
-    private init() {
-        configureAudioSession()
-    }
-    
-    // MARK: - Public Toggles
-    
-    func toggleRepeatOne() {
-        repeatOne.toggle()
-        if repeatOne { repeatAll = false }
-    }
-    
-    func toggleRepeatAll() {
-        repeatAll.toggle()
-        if repeatAll { repeatOne = false }
-    }
-    
-    func toggleShuffle() {
-        shuffle.toggle()
-    }
-    
-    func togglePlayPause() {
-        isPlaying ? pause() : resume()
-    }
-    
-    // MARK: - Queue Management
-    
-    func setQueue(_ tracks: [Track], startAt: Track? = nil) {
-        if startAt == nil {
-            userQueue = tracks
-            continueQueue.removeAll()
-        }
-        if let startAt {
-            playNow(track: startAt)
-        }
-    }
-    
-    func enqueueNext(_ track: Track) {
-        stopContinueMode()
-        userQueue.removeAll { $0.id == track.id }
-        userQueue.insert(track, at: 0)
-    }
-    
-    func addToQueue(_ track: Track) {
-        stopContinueMode()
-        userQueue.removeAll { $0.id == track.id }
-        userQueue.append(track)
-    }
-    
-    func addToQueue(key: String) {
-        Task {
-            if let track = try? await APIService.shared.fetchTrack(key: key) {
-                addToQueue(track)
-            }
-        }
-    }
-    
-    func removeFromUserQueue(at offsets: IndexSet) {
-        userQueue.remove(atOffsets: offsets)
-    }
-    
-    func moveUserQueue(from source: IndexSet, to destination: Int) {
-        userQueue.move(fromOffsets: source, toOffset: destination)
-    }
-    
-    func clearUserQueue() {
-        userQueue.removeAll()
-    }
-    
-    func shuffleUserQueue() {
-        guard userQueue.count > 1 else { return }
-        userQueue.shuffle()
-    }
-    
-    func addHistory(from response: SearchResponse) {
-        pushHistorySearchID(response.search_id)
-        response.results.forEach { pushHistory(key: $0.key) }
-    }
-    
-    // MARK: - Playback Controls
-    
-    func play(track: Track) {
-        playNow(track: track)
-    }
-    
-    func playNow(track: Track) {
-        isLoading = true
-        errorMessage = nil
-        stopContinueMode()
-        startPlayback(with: track)
-        // ✨ Populate continueQueue immediately after starting playback
-        topUpContinueQueue()
-    }
-    
-    func playNow(key: String) {
-        Task { await resolveAndPlay(key: key) }
-    }
-    
-    func playTrack(key: String) {
-        playNow(key: key)
-    }
-    
-    func playNext() {
-        Task { await advance(reason: .manual) }
-    }
-    
-    func playPrevious() {
-        if progress.currentTime > 3 {
-            seek(to: 0)
-            return
-        }
-        
-        // Find the most recent historical track that is not the current one.
-        if let currentID = currentTrack?.id {
-            if let previousKey = history.first(where: { $0 != currentID }) {
-                Task { await resolveAndPlay(key: previousKey) }
+    @Published private(set) var artworkImage: UIImage?
+    @Published private(set) var dominantColor: Color?
+
+    @Published private(set) var isPlaying: Bool = false
+    @Published private(set) var isLoading: Bool = false
+
+    @Published var currentTime: Double = 0
+    @Published private(set) var duration: Double = 0
+
+    @Published var isSeeking: Bool = false
+    @Published private(set) var didFinishPlayback: Bool = false
+
+    @Published var volume: Float = 1.0 {
+        didSet {
+            let clamped = min(max(volume, 0), 1)
+            if volume != clamped {
+                volume = clamped
                 return
             }
+            avPlayer?.volume = volume
+            audioPlayer?.volume = volume
         }
-        seek(to: 0)
     }
-    
+
+    // MARK: - Backends
+
+    private var avPlayer: AVPlayer?
+    private var audioPlayer: AVAudioPlayer?
+
+    // MARK: - Observers / Timers
+
+    private var timeObserver: Any?
+    private var endObserver: NSObjectProtocol?
+    private var progressTimer: Timer?
+    private var dominantColorTask: Task<Void, Never>?
+
+    // MARK: - Init
+
+    override init() {
+        super.init()
+        configureAudioSession()
+    }
+
+    // MARK: - Queue API
+
+    var upcomingTracks: [Track] {
+        guard currentIndex + 1 < queue.count else { return [] }
+        return Array(queue[currentIndex + 1 ..< queue.count])
+    }
+
+    func setQueue(_ tracks: [Track], startAt index: Int = 0) {
+        stop()
+        queue = tracks
+        currentIndex = min(max(index, 0), max(tracks.count - 1, 0))
+
+        guard !queue.isEmpty else { return }
+        playTrack(at: currentIndex)
+    }
+
+    func playFromQueue(index: Int) {
+        guard index >= 0, index < queue.count else { return }
+        playTrack(at: index)
+    }
+
+    func addToQueue(_ track: Track) {
+        queue.append(track)
+    }
+
+    func enqueueNext(_ track: Track) {
+        queue.insert(track, at: currentIndex + 1)
+    }
+
+    func removeUpcoming(at offsets: IndexSet) {
+        let absoluteOffsets = IndexSet(offsets.map { $0 + currentIndex + 1 })
+        queue.remove(atOffsets: absoluteOffsets)
+    }
+
+    func moveUpcoming(from source: IndexSet, to destination: Int) {
+        let absoluteSource = IndexSet(source.map { $0 + currentIndex + 1 })
+        let absoluteDestination = destination + currentIndex + 1
+        queue.move(fromOffsets: absoluteSource, toOffset: absoluteDestination)
+    }
+
+    func clearUpcoming() {
+        guard currentIndex + 1 < queue.count else { return }
+        queue.removeSubrange(currentIndex + 1 ..< queue.count)
+    }
+
+    func shuffleUpcoming() {
+        guard currentIndex + 1 < queue.count else { return }
+        let upcoming = queue.suffix(from: currentIndex + 1).shuffled()
+        queue.removeSubrange(currentIndex + 1 ..< queue.count)
+        queue.append(contentsOf: upcoming)
+    }
+
+    func playNext() {
+        advance()
+    }
+
+    func playPrevious() {
+        if currentTime > 3 {
+            seek(to: 0)
+        } else if currentIndex > 0 {
+            playTrack(at: currentIndex - 1)
+        } else {
+            seek(to: 0)
+        }
+    }
+
+    func togglePlayPause() {
+        if isPlaying {
+            pause()
+        } else {
+            play()
+        }
+    }
+
+    // MARK: - Playback Control
+
+    func play() {
+        guard !isPlaying else { return }
+        if currentTrack == nil, !queue.isEmpty {
+            playTrack(at: currentIndex)
+        } else {
+            resumeBackend()
+        }
+    }
+
     func pause() {
-        player?.pause()
+        pauseBackend()
         isPlaying = false
-        updateNowPlayingRate(0.0)
-        if #available(iOS 17.0, *) {
-            Task { @MainActor in
-                await updateLiveActivity(isPlaying: false)
-            }
-        }
     }
-    
-    func resume() {
-        player?.play()
-        isPlaying = true
-        updateNowPlayingRate(1.0)
-        if #available(iOS 17.0, *) {
-            Task { @MainActor in
-                await updateLiveActivity(isPlaying: true)
-            }
-        }
-    }
-    
+
     func stop() {
-        updateNowPlayingRate(0.0)
-        if #available(iOS 17.0, *) {
-            Task { @MainActor in
-                await updateLiveActivity(isPlaying: false)
-            }
-        }
-        Task { @MainActor in
-            if #available(iOS 17.0, *) {
-                await endLiveActivity()
-            }
-        }
-        cleanupPlayer()
-        currentTrack = nil
+        stopBackend()
         isPlaying = false
         isLoading = false
-        clearNowPlaying()
+        currentTrack = nil
+        currentTime = 0
+        duration = 0
+        didFinishPlayback = false
+        dominantColorTask?.cancel()
+        dominantColorTask = nil
     }
-    
+
+    // MARK: - Seeking
+
+    func startScrubbing() {
+        isSeeking = true
+    }
+
+    func endScrubbing(at time: Double) {
+        isSeeking = false
+        seek(to: time)
+    }
+
     func seek(to seconds: Double) {
-        guard let player = player else { return }
-        let clamped = max(0, seconds)
-        let target = CMTime(seconds: clamped, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-        player.seek(to: target) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.progress.currentTime = clamped
-                self.updateNowPlayingElapsed(clamped)
-                if #available(iOS 17.0, *) {
-                    await self.updateLiveActivity(isPlaying: self.isPlaying)
+        let target = min(max(seconds, 0), duration)
+
+        if let player = audioPlayer {
+            player.currentTime = target
+            if !isSeeking { currentTime = target }
+        } else if let player = avPlayer {
+            let time = CMTime(seconds: target, preferredTimescale: 1_000_000_000)
+            player.seek(to: time)
+            if !isSeeking { currentTime = target }
+        }
+    }
+
+    // MARK: - Core Playback Flow
+
+    private func playTrack(at index: Int) {
+        guard index >= 0, index < queue.count else { return }
+
+        stopBackend()
+        didFinishPlayback = false
+        currentIndex = index
+        currentTrack = queue[index]
+        currentTime = 0
+        duration = 0
+        isLoading = true
+        artworkImage = nil
+        dominantColor = nil
+
+        let track = queue[index]
+
+        if let localURL = track.localURL {
+            playLocal(url: localURL)
+        } else {
+            playStream(url: track.stream)
+        }
+        
+        updateArtwork(for: track)
+    }
+
+    private func updateArtwork(for track: Track) {
+        let trackID = track.id // Capture ID to prevent race conditions
+        Task {
+            let updatedTrack = await APIService.shared.fetchArtwork(for: track)
+            
+            // Ensure the track we fetched artwork for is still the current one
+            guard self.currentTrack?.id == trackID else { return }
+            self.currentTrack = updatedTrack
+            
+            if let artworkData = await APIService.shared.fetchArtworkData(for: updatedTrack) {
+                let image = UIImage(data: artworkData)?.makeThreadSafe()
+                
+                // Final check before updating UI
+                guard self.currentTrack?.id == trackID else { return }
+
+                self.artworkImage = image
+                
+                self.dominantColorTask?.cancel()
+                guard let image else { return }
+
+                self.dominantColorTask = Task.detached(priority: .utility) {
+                    guard let avg = image.averageColor() else { return }
+                    let toned = avg.tonedForBackground()
+
+                    await MainActor.run {
+                        // Check one last time before setting color
+                        guard self.currentTrack?.id == trackID else { return }
+                        withAnimation(.easeInOut(duration: 0.8)) {
+                            self.dominantColor = toned
+                        }
+                    }
                 }
             }
         }
     }
-    
-    // MARK: - Internal Playback Lifecycle
-    
-    private func startPlayback(with track: Track) {
-        cleanupPlayer()
-        currentTrack = track
-        pushHistory(key: track.id)
-        
-        let item = AVPlayerItem(url: track.stream)
-        let player = AVPlayer(playerItem: item)
-        self.player = player
-        
-        observeEnd(for: item)
-        observeTime(on: player)
-        
-        progress.duration = Double(track.duration)
-        progress.currentTime = 0
-        
-        player.play()
-        isPlaying = true
-        isLoading = false
-        configureNowPlaying(for: track)
-        updateNowPlayingRate(1.0)
-        if #available(iOS 17.0, *) {
-            startLiveActivity(for: track)
+
+    private func handleFinishedPlayback() {
+        guard !didFinishPlayback else { return }
+
+        didFinishPlayback = true
+        isPlaying = false
+        currentTime = 0
+
+        advance()
+    }
+
+    private func advance() {
+        guard currentIndex + 1 < queue.count else {
+            stop()
+            return
+        }
+        playTrack(at: currentIndex + 1)
+    }
+
+    // MARK: - Local Backend (AVAudioPlayer)
+
+    private func playLocal(url: URL) {
+        do {
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.delegate = self
+            player.volume = volume
+            player.prepareToPlay()
+            player.play()
+
+            audioPlayer = player
+            duration = player.duration
+            isPlaying = true
+            isLoading = false
+
+            startProgressTimer()
+        } catch {
+            isLoading = false
         }
     }
-    
-    private func observeEnd(for item: AVPlayerItem) {
-        if let endObserver {
-            NotificationCenter.default.removeObserver(endObserver)
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
+            self.handleFinishedPlayback()
         }
+    }
+
+    private func startProgressTimer() {
+        stopProgressTimer()
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self = self, let player = self.audioPlayer, !self.isSeeking else { return }
+                self.currentTime = player.currentTime
+            }
+        }
+    }
+
+    private func stopProgressTimer() {
+        progressTimer?.invalidate()
+        progressTimer = nil
+    }
+
+    // MARK: - Stream Backend (AVPlayer)
+
+    private func playStream(url: URL) {
+        let item = AVPlayerItem(url: url)
+        let player = AVPlayer(playerItem: item)
+        player.volume = volume
+        player.allowsExternalPlayback = true
+        avPlayer = player
+
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.handlePlaybackFinished()
+            Task { @MainActor in
+                self?.handleFinishedPlayback()
             }
         }
-    }
-    
-    private func observeTime(on player: AVPlayer) {
-        if let timeObserver {
-            player.removeTimeObserver(timeObserver)
-            self.timeObserver = nil
-        }
-        
-        timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC)),
-            queue: .main
-        ) { [weak self] time in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+
+        let interval = CMTime(seconds: 0.5, preferredTimescale: 1_000_000_000)
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            Task { @MainActor in
+                guard let self = self, !self.isSeeking else { return }
                 let seconds = CMTimeGetSeconds(time)
-                if seconds.isFinite {
-                    self.progress.currentTime = seconds
-                    self.updateNowPlayingElapsed(seconds)
-                    if #available(iOS 17.0, *) {
-                        await self.updateLiveActivity(isPlaying: self.isPlaying)
-                    }
-                }
+                guard seconds.isFinite else { return }
+                self.currentTime = seconds
                 
-                if let item = player.currentItem {
-                    let durationSeconds = CMTimeGetSeconds(item.duration)
-                    if durationSeconds.isFinite && durationSeconds > 0 {
-                        self.progress.duration = durationSeconds
-                    }
+                if let dur = player.currentItem?.duration.seconds, dur.isFinite, dur > 0 {
+                    self.duration = dur
                 }
             }
         }
-    }
-    
-    private func handlePlaybackFinished() async {
-        await advance(reason: .autoplay)
-    }
-    
-    private func advance(reason: AdvanceReason) async {
-        if repeatOne, reason == .autoplay, currentTrack != nil {
-            if let player {
-                await player.seek(to: .zero)
-                player.play()
-            }
-            isPlaying = true
-            progress.currentTime = 0
-            updateNowPlayingElapsed(0)
-            if #available(iOS 17.0, *) {
-                await updateLiveActivity(isPlaying: true)
-            }
-            return
-        }
-        
-        if let nextUser = popUserQueue() {
-            stopContinueMode()
-            playNow(track: nextUser)
-            return
-        }
-        
-        // Continue mode - simplified to use popContinueQueue() directly
-        if let nextContinue = popContinueQueue() {
-            playNow(track: nextContinue)
-            return
-        }
-        
-        if repeatAll {
-            continueQueue.removeAll()
-            if let loopTrack = popContinueQueue() {
-                playNow(track: loopTrack)
-                return
-            }
-        }
-        
-        stop()
-    }
-    
-    private func popUserQueue() -> Track? {
-        guard !userQueue.isEmpty else { return nil }
-        if shuffle {
-            let index = Int.random(in: 0..<userQueue.count)
-            return userQueue.remove(at: index)
-        }
-        return userQueue.removeFirst()
-    }
-    
-    private func popContinueQueue() -> Track? {
-        guard !continueQueue.isEmpty else { return nil }
-        if shuffle {
-            let index = Int.random(in: 0..<continueQueue.count)
-            return continueQueue.remove(at: index)
-        }
-        return continueQueue.removeFirst()
-    }
-    
-    private func ensureContinueQueue(target: Int) async {
-        let cappedTarget = min(target, 5)
-        let needed = cappedTarget - continueQueue.count
-        if needed <= 0 { return }
-        await topUpContinueQueue(target: cappedTarget)
-    }
-    
-    private func topUpContinueQueue(target: Int) async {
-        guard userQueue.isEmpty else { return }
-        guard continueQueue.count < 5 else { return }
 
-        var queue = continueQueue
-        var existingKeys = Set(queue.map(\.id))
-        if let currentID = currentTrack?.id {
-            existingKeys.insert(currentID)
-        }
-        userQueue.forEach { existingKeys.insert($0.id) }
-    // MARK: - Continue Queue - New Implementation
-    
-    /// Populate the continue queue with new API flow:
-    /// 1️⃣ GET /history → get all search IDs
-    /// 2️⃣ Random select one search_id
-    /// 3️⃣ GET /history/{search_id} → get results: [Track]
-    /// 4️⃣ Random select one Track from results
-    private func topUpContinueQueue() {
-        guard !isTopUpInProgress else { return }
-        guard userQueue.isEmpty else { return }  // Only topup when userQueue is empty
-        guard continueQueue.count < 5 else { return }  // Don't exceed 5 tracks
-        
-        isTopUpInProgress = true
-        
-        Task {
-            do {
-                let response = try await APIService.shared.fetchSearchResult(id: searchID)
-                guard let historyKey = response.results.randomElement()?.key else { continue }
-                let track = try await APIService.shared.fetchTrack(key: historyKey)
-                if existingKeys.contains(track.id) { continue }
-                queue.append(track)
-                existingKeys.insert(track.id)
-                // Step 1️⃣: GET /history to get all search IDs
-                let histories = try await APIService.shared.fetchHistory()
-                
-                // Step 2️⃣: Select a random search_id
-                guard let randomHistory = histories.randomElement() else {
-                    isTopUpInProgress = false
-                    return
-                }
-                
-                let searchId = randomHistory.id ?? randomHistory.search_id
-                
-                // Step 3️⃣: GET /history/{search_id} to get tracks for this search
-                let response = try await APIService.shared.fetchSearchResult(id: searchId)
-                
-                // Step 4️⃣: Select a random track from results and add to queue
-                if let randomTrack = response.results.randomElement() {
-                    // Check for duplicates
-                    var existingKeys = Set(continueQueue.map(\.id))
-                    if let currentID = currentTrack?.id {
-                        existingKeys.insert(currentID)
-                    }
-                    userQueue.forEach { existingKeys.insert($0.id) }
-                    
-                    if !existingKeys.contains(randomTrack.id) {
-                        continueQueue.append(randomTrack)
-                    }
-                }
-                
-                isTopUpInProgress = false
-                
-                // Recursively call to fill up to 5 tracks
-                if continueQueue.count < 5 {
-                    topUpContinueQueue()
-                }
-                
-            } catch {
-#if DEBUG
-                print("❌ TopUp continueQueue failed:", error.localizedDescription)
-#endif
-                isTopUpInProgress = false
-            }
-        }
-    }
-    
-    private func stopContinueMode() {
-        continueQueue.removeAll()
-    }
-    
-    // MARK: - Networking Helpers
-    
-    private func resolveAndPlay(key: String) async {
-        isLoading = true
-        errorMessage = nil
-        do {
-            let track = try await APIService.shared.fetchTrack(key: key)
-            playNow(track: track)
-        } catch {
-            errorMessage = error.localizedDescription
-            isLoading = false
-        }
-    }
-    
-    private func pushHistory(key: String) {
-        history.removeAll { $0 == key }
-        history.insert(key, at: 0)
-        if history.count > 100 {
-            history.removeLast(history.count - 100)
-        }
+        player.play()
+        isPlaying = true
+        isLoading = false
     }
 
-    private func pushHistorySearchID(_ id: String) {
-        historySearchIDs.removeAll { $0 == id }
-        historySearchIDs.insert(id, at: 0)
-        if historySearchIDs.count > 100 {
-            historySearchIDs.removeLast(historySearchIDs.count - 100)
-        }
+    // MARK: - Backend Control
+
+    private func pauseBackend() {
+        audioPlayer?.pause()
+        avPlayer?.pause()
     }
-    
-    // MARK: - Audio Session / Cleanup
-    
+
+    private func resumeBackend() {
+        audioPlayer?.play()
+        avPlayer?.play()
+        isPlaying = true
+    }
+
+    private func stopBackend() {
+        audioPlayer?.stop()
+        audioPlayer = nil
+        stopProgressTimer()
+
+        if let observer = timeObserver {
+            avPlayer?.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+        if let observer = endObserver {
+            NotificationCenter.default.removeObserver(observer)
+            endObserver = nil
+        }
+
+        avPlayer?.pause()
+        avPlayer = nil
+    }
+
+    // MARK: - Audio Session
+
     private func configureAudioSession() {
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-#if DEBUG
-            print("Audio session setup failed: \(error.localizedDescription)")
-#endif
-        }
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+        try? AVAudioSession.sharedInstance().setActive(true)
     }
-    
-    private func cleanupPlayer() {
-        if let timeObserver, let player {
-            player.removeTimeObserver(timeObserver)
-        }
-        if let endObserver {
-            NotificationCenter.default.removeObserver(endObserver)
-        }
-        timeObserver = nil
-        endObserver = nil
-        
-        player?.pause()
-        player?.replaceCurrentItem(with: nil)
-        player = nil
-        
-        progress.currentTime = 0
-        progress.duration = 0
-    }
-    
-    // MARK: - Now Playing / Live Activity
+}
 
-    @available(iOS 17.0, *)
-    private func startLiveActivity(for track: Track) {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+private extension UIImage {
+    func makeThreadSafe() -> UIImage? {
+        defer { UIGraphicsEndImageContext() }
+        UIGraphicsBeginImageContextWithOptions(size, false, 0)
+        draw(in: CGRect(origin: .zero, size: size))
+        return UIGraphicsGetImageFromCurrentImageContext()
+    }
+}
+private extension Color {
+    /// Returns a version of the color toned to work better as a background.
+    /// Bright colors are darkened slightly; dark colors are lightened slightly.
+    nonisolated func tonedForBackground() -> Color {
+        // Convert to RGBA via UIColor
+        let ui = UIColor(self)
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        ui.getRed(&r, green: &g, blue: &b, alpha: &a)
 
-        let attributes = NowPlayingAttributes(
-            trackID: track.id,
-            title: track.title,
-            artist: track.artist
-        )
-        let content = ActivityContent(
-            state: NowPlayingAttributes.ContentState(
-                title: track.title,
-                artist: track.artist,
-                isPlaying: isPlaying,
-                elapsed: progress.currentTime,
-                duration: Double(track.duration)
-            ),
-            staleDate: nil
-        )
-        do {
-            nowPlayingActivity = try Activity.request(
-                attributes: attributes,
-                content: content,
-                pushType: nil
-            )
-        } catch {
-            #if DEBUG
-            print("Live Activity start failed:", error.localizedDescription)
-            #endif
+        // Perceived luminance (sRGB)
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+        // Blend factor determines how much to move toward target (black/white)
+        let blend: CGFloat = 0.18
+
+        let tonedRed: CGFloat
+        let tonedGreen: CGFloat
+        let tonedBlue: CGFloat
+
+        if luminance > 0.7 {
+            // Too bright: blend slightly toward black
+            tonedRed   = r * (1 - blend)
+            tonedGreen = g * (1 - blend)
+            tonedBlue  = b * (1 - blend)
+        } else if luminance < 0.3 {
+            // Too dark: blend slightly toward white
+            tonedRed   = r + (1 - r) * blend
+            tonedGreen = g + (1 - g) * blend
+            tonedBlue  = b + (1 - b) * blend
+        } else {
+            // Mid-range: small desaturation for subtlety
+            let gray = (r + g + b) / 3
+            let desat: CGFloat = 0.12
+            tonedRed   = r + (gray - r) * desat
+            tonedGreen = g + (gray - g) * desat
+            tonedBlue  = b + (gray - b) * desat
         }
-    }
 
-    @available(iOS 17.0, *)
-    private func updateLiveActivity(isPlaying: Bool) async {
-        guard let activity = nowPlayingActivity,
-              let track = currentTrack else { return }
-        let activityContent = ActivityContent(
-            state: NowPlayingAttributes.ContentState(
-                title: track.title,
-                artist: track.artist,
-                isPlaying: isPlaying,
-                elapsed: progress.currentTime,
-                duration: Double(track.duration)
-            ),
-            staleDate: nil
-        )
-        await activity.update(activityContent)
-    }
-
-    @available(iOS 17.0, *)
-    private func endLiveActivity() async {
-        guard let activity = nowPlayingActivity else { return }
-        let track = currentTrack
-        let activityContent = ActivityContent(
-            state: NowPlayingAttributes.ContentState(
-                title: track?.title ?? "",
-                artist: track?.artist ?? "",
-                isPlaying: false,
-                elapsed: progress.currentTime,
-                duration: Double(track?.duration ?? 0)
-            ),
-            staleDate: nil
-        )
-        await activity.end(activityContent, dismissalPolicy: .immediate)
-        nowPlayingActivity = nil
-    }
-    private func configureNowPlaying(for track: Track) {
-        var info: [String: Any] = [:]
-        info[MPMediaItemPropertyTitle] = track.title
-        info[MPMediaItemPropertyArtist] = track.artist
-        info[MPMediaItemPropertyPlaybackDuration] = Double(track.duration)
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = progress.currentTime
-        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-    }
-    
-    private func updateNowPlayingElapsed(_ time: Double) {
-        guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = time
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-    }
-    
-    private func updateNowPlayingRate(_ rate: Double) {
-        guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
-        info[MPNowPlayingInfoPropertyPlaybackRate] = rate
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-    }
-    
-    private func clearNowPlaying() {
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        let tonedColor = UIColor(red: tonedRed, green: tonedGreen, blue: tonedBlue, alpha: a)
+        return Color(tonedColor)
     }
 }

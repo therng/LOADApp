@@ -81,31 +81,22 @@ struct HistoryView: View {
                 }
                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                     Button {
-                        Task { await addAllToQueue(item) }
+                        retrySearch(item)
                     } label: {
-                        Image(systemName: "text.badge.plus")
+                        Image(systemName: "arrow.counterclockwise")
                     }
-                    .tint(.blue)
+                    .tint(Color.accentColor)
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    Button("Retry", systemImage: "magnifyingglass.circle") {
-                        retrySearch(item)
-                    }
-                    .tint(.accentColor)
-                    
                     Button(role: .destructive) {
                         deleteItem(item)
                     } label: {
                         Image(systemName: "trash")
-                            .accessibilityLabel("Delete")
                     }
                 }
             }
         }
         .listStyle(.plain)
-        .refreshable {
-            await loadHistory(force: true)
-        }
     }
 
     private var emptyView: some View {
@@ -122,10 +113,10 @@ struct HistoryView: View {
 
     private func retrySearch(_ item: HistoryItem) {
         Haptics.impact(.medium)
-        // Update shared bindings
+        selectedTab = 2
         searchText = item.query
-        isSearchPresented = false // Closing the bar often triggers the search in onSubmit logic or onChange
-        selectedTab = 0 // Switch to Search Tab
+        isSearchPresented = false
+        
     }
 
     private func loadHistory(force: Bool = false) async {
@@ -144,7 +135,7 @@ struct HistoryView: View {
     private func clearHistory() {
         Task {
             do {
-                _ = try await APIService.shared.deleteAllHistory()
+                _ = try await APIService.shared.deleteAllHistoryItems()
                 historyItems = []
             } catch {
                 errorMessage = error.localizedDescription
@@ -156,27 +147,12 @@ struct HistoryView: View {
     private func deleteItem(_ item: HistoryItem) {
         Task {
             do {
-                _ = try await APIService.shared.deleteHistoryItem(id: item.search_id)
+                _ = try await APIService.shared.deleteHistoryItem(with: item.search_id)
                 historyItems.removeAll { $0.search_id == item.search_id }
             } catch {
                 errorMessage = error.localizedDescription
                 showErrorAlert = true
             }
-        }
-    }
-
-    private func addAllToQueue(_ item: HistoryItem) async {
-        do {
-            let response = try await APIService.shared.fetchSearchResult(id: item.search_id)
-            await MainActor.run {
-                AudioPlayerService.shared.addHistory(from: response)
-                for track in response.results {
-                    AudioPlayerService.shared.addToQueue(track)
-                }
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-            showErrorAlert = true
         }
     }
 }

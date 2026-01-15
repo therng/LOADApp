@@ -18,7 +18,7 @@ struct SearchView: View {
                     loadingView
                 } else if let error = errorMessage {
                     errorView(error)
-                } else if !searchText.isEmpty {
+                } else if !isLoading {
                     emptyView
                 }
             }
@@ -56,7 +56,7 @@ struct SearchView: View {
     private func performSearch() {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
-
+        
         isLoading = true
         errorMessage = nil
         isSearchPresented = false
@@ -64,8 +64,7 @@ struct SearchView: View {
         Task {
             do {
                 let response = try await APIService.shared.search(query: q)
-                player.addHistory(from: response)
-                self.presentedSearchId = response.search_id
+                self.presentedSearchId = response.searchId
                 Haptics.impact(.medium)
                 self.isLoading = false
             } catch {
@@ -76,14 +75,15 @@ struct SearchView: View {
     }
     
     private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .scaleEffect(2)
-                .foregroundStyle(.secondary)
+        VStack(spacing: 12) {
+            Image(systemName: "waveform.path.ecg.magnifyingglass")
+                .font(.system(size: 60))
+                .foregroundStyle(.primary)
+                .symbolEffect(.pulse)
         }
         .frame(maxHeight: .infinity)
     }
-
+    
     private func errorView(_ message: String) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle")
@@ -96,17 +96,14 @@ struct SearchView: View {
         .padding()
         .frame(maxHeight: .infinity)
     }
-
+    
     private var emptyView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "music.note.list")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("No tracks found")
-                .font(.headline)
-            Text("Try a different search")
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxHeight: .infinity)
+            VStack(spacing: 12) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.primary)
+            }
+            .frame(maxHeight: .infinity)
+        
     }
 }

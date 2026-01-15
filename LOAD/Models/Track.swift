@@ -5,9 +5,13 @@ struct Track: Identifiable, Codable, Hashable {
     let title: String
     let duration: Int
     let key: String
+
     
     // ฟิลด์สำหรับเก็บ Path ไฟล์ในเครื่อง (เพิ่มเข้าไปที่นี่ที่เดียว)
     var localURL: URL?
+    var artworkURL: URL?
+    var releaseDate: String?
+    
 
     // MARK: - Helpers
     private static let downloadBaseURL = URL(string: "https://nplay.idmp3s.xyz")!
@@ -30,15 +34,6 @@ struct Track: Identifiable, Codable, Hashable {
         }
         return stream
     }
-//    func startAccessing() -> Bool {
-//            guard let url = localURL else { return true } // ถ้าเป็น Stream ไม่ต้องขอสิทธิ์
-//            return url.startAccessingSecurityScopedResource()
-//        }
-//        
-//        /// ฟังก์ชันสำหรับปล่อยสิทธิ์การเข้าถึงไฟล์
-//        func stopAccessing() {
-//            localURL?.stopAccessingSecurityScopedResource()
-//        }
     
     var durationText: String {
         let totalSeconds = max(0, duration)
@@ -56,7 +51,7 @@ struct Track: Identifiable, Codable, Hashable {
 // MARK: - Search Response
 struct SearchResponse: Codable {
     let search_id: String
-    let results: [Track]
+    var results: [Track]
     let query: String
     let count: Int
 }
@@ -75,4 +70,41 @@ struct LocalFile: Identifiable {
     let name: String
     let size: String
     let creationDate: String
+}
+struct iTunesSearchResponse: Codable {
+    let results: [iTunesSearchResult]
+}
+struct iTunesSearchResult: Codable, Identifiable {
+    // Fields for both albums and tracks
+    let wrapperType: String
+    let artistName: String
+    let collectionId: Int
+    let collectionName: String
+    let artworkUrl100: URL?
+    let releaseDate: Date
+    
+    // Fields specific to tracks
+    let trackId: Int?
+    let trackName: String?
+    let trackNumber: Int?
+    let trackTimeMillis: Int?
+
+    // Optional field for compilations
+    let collectionArtistName: String?
+    
+    var id: Int { trackId ?? collectionId }
+    
+    var highResArtworkURL: URL? {
+        guard let artworkURL = artworkUrl100 else { return nil }
+        let highResURLString = artworkURL.absoluteString.replacingOccurrences(of: "100x100", with: "500x500")
+        return URL(string: highResURLString)
+    }
+    
+    var trackDuration: String? {
+        guard let millis = trackTimeMillis else { return nil }
+        let totalSeconds = millis / 1000
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
 }

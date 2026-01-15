@@ -6,94 +6,167 @@ struct MiniPlayerView: View {
     @Binding var isFullPlayerPresented: Bool
 
     var body: some View {
-        switch tabViewBottomAccessoryPlacement {
-        case .expanded:
-            HStack(spacing: 12) {
-                HStack(spacing: 10) {
-                    waveformView
-                    titleView
-                        .layoutPriority(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                
-                controlsView
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .onTapGesture {
-                Haptics.selection()
-                isFullPlayerPresented = true
-            }
-        default:
-            HStack(spacing:12){
-                Image(systemName: "waveform")
-                    .scaleEffect(1)
-                    .symbolEffect(.variableColor.cumulative.reversing, options: .repeating.speed(1.5))
-                    .foregroundStyle(player.isPlaying ? .blue : .primary)
-               titleView
-                    .scaleEffect(1)
-                Button(action: player.togglePlayPause) {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(.primary)
-                    }
-                }
-            
-                .padding(.horizontal,20)
-                .padding(.vertical, 10)
-                .onTapGesture {
-                    Haptics.selection()
-                    isFullPlayerPresented = true
-                }
+        VStack(spacing: 0) {
+            switch tabViewBottomAccessoryPlacement {
+            case .expanded:
+                expandedView
+            default:
+                minimizedView
             }
         }
+        .background(.clear)
+        .buttonStyle(.glass)
+        .onTapGesture {
+            if player.currentTrack != nil {
+                isFullPlayerPresented = true
+            }
+        }
+    }
+
+    // MARK: - Views
+    
+    @ViewBuilder
+    private var expandedView: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 8) {
+                artworkAndInfo
+            
+                titleView
+            
+                Spacer()
+                
+                playbackControls()
+            }
+            .frame(height: 60)
+            .padding(.horizontal, 20)
+        }
+    }
+
+    @ViewBuilder
+    private var minimizedView: some View {
+        HStack(spacing: 5) {
+            artworkAndInfo
+        
+            titleView
+            
+            Spacer(minLength: 5)
+            
+            Button(action: player.togglePlayPause) {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(.primary)
+            }
+        }
+        .frame(height: 60)
+        .padding(.horizontal, 20)
+    }
     
     @ViewBuilder
     private var titleView: some View {
         if let track = player.currentTrack {
-            MarqueeText(
-                text: track.title,
-                font: .body,
-                color: .primary,
-                isActive: true,
-                speed: 28,
-                spacing: 24,
-                alignment: .leading
-            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title)
+                    .font(.system(size: 13, weight: .regular))
+                    .lineLimit(1)
+                Text(track.artist)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
         } else {
             Text("Not Playing")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(.secondary)
         }
     }
 
-    private var waveformView: some View {
-        Image(systemName: "waveform")
-            .symbolRenderingMode(.palette)
-            .foregroundStyle(.blue, .purple, .pink)
-            .font(.headline)
-            .symbolEffect(.bounce, options: .repeating.speed(1))
-            .symbolEffect(.variableColor.cumulative.reversing, options: .repeating.speed(0.8))
-            .frame(width: 40, height: 40)
+    @ViewBuilder
+    private var artworkAndInfo: some View {
+        if player.currentTrack != nil {
+            ZStack {
+                if let artwork = player.artworkImage {
+                    Image(uiImage: artwork)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Image(systemName: "music.note")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .padding(8)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .frame(width: 30, height: 30)
+            .background(Color.gray.opacity(0.2))
+            .cornerRadius(4)
+            .clipped()
+        } else {
+            // Placeholder for when no track is playing
+            ZStack {
+                Image(systemName: "music.note")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .padding(8)
+                    .foregroundColor(.secondary)
+            }
+            .frame(width: 30, height: 30)
+            .background(Color.gray.opacity(0.2))
+            .cornerRadius(4)
+            .clipped()
+        }
     }
 
-    private var controlsView: some View {
-        HStack(spacing: 16) {
-            Button(action: {
-                Haptics.impact()
-                player.togglePlayPause()
-            }) {
+    @ViewBuilder
+    private func playbackControls() -> some View {
+        HStack(spacing: 10) {
+            Button(action: player.togglePlayPause) {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 22))
+                    .font(.title2)
+                    .foregroundStyle(.primary)
             }
-
-            Button(action: {
-                Haptics.impact()
-                player.playNext()
-            }) {
+            .buttonStyle(.plain)
+            
+            Button(action: player.playNext) {
                 Image(systemName: "forward.fill")
-                    .font(.system(size: 22))
+                    .font(.title2)
+                    .foregroundStyle(.primary)
             }
+            .buttonStyle(.plain)
         }
+        .padding(.trailing, 5)
     }
+}
+
+// MARK: - Previews
+
+#Preview("Expanded") {
+    let player = AudioPlayerService.shared
+    player.setQueue([
+        Track(artist: "Daft Punk", title: "Harder, Better, Faster, Stronger", duration: 224, key: "t1")
+    ], startAt: 0)
+    player.play()
+    
+    let view = MiniPlayerView(isFullPlayerPresented: .constant(false))
+        .environmentObject(player)
+    return view
+}
+
+#Preview("Minimized") {
+    let player = AudioPlayerService.shared
+    player.setQueue([
+        Track(artist: "Daft Punk", title: "Harder, Better, Faster, Stronger", duration: 224, key: "t1")
+    ], startAt: 0)
+    player.play()
+    
+    let view = MiniPlayerView(isFullPlayerPresented: .constant(false))
+        .environmentObject(player)
+    return view
+}
+
+#Preview("No Track") {
+    let player = AudioPlayerService() // A fresh instance
+    let view = MiniPlayerView(isFullPlayerPresented: .constant(false))
+        .environmentObject(player)
+    return view
 }

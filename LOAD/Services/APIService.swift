@@ -1,5 +1,7 @@
 import Foundation
 
+
+
 @MainActor
 final class APIService {
     
@@ -18,6 +20,7 @@ final class APIService {
         case historyItem(id: String)
         case deleteAll
         case deleteItem(id: String)
+        case beatportTrackID(artist: String, title: String, mix: String?)
         
         func url(base: String) throws -> URL {
             guard var components = URLComponents(string: base) else {
@@ -48,6 +51,17 @@ final class APIService {
                 
             case .deleteItem(let id):
                 components.path = "/delete/\(id)"
+                
+            case .beatportTrackID(let artist, let title, let mix):
+                components.path = "/beatport/track-id"
+                var queryItems = [
+                    URLQueryItem(name: "artist", value: artist),
+                    URLQueryItem(name: "title", value: title)
+                ]
+                if let mix = mix {
+                    queryItems.append(URLQueryItem(name: "mix", value: mix))
+                }
+                components.queryItems = queryItems
             }
             
             guard let url = components.url else {
@@ -100,6 +114,10 @@ final class APIService {
         let deleted: Bool
         let search_id: String
     }
+    
+    struct BeatportTrackIDResponse: Decodable {
+        let track_id: Int
+    }
 
     private var currentSearchTask: Task<SearchResponse, Error>?
     
@@ -114,29 +132,26 @@ final class APIService {
 #endif
         }
     }
-    
-    // MARK: - Search (MAIN)
-    func search(query: String) async throws -> SearchResponse {
-        // Cancel previous search (สำคัญมาก)
+
+    // MARK: - Search
+    func search(query: String) async throws -> (searchId: String, tracks: [Track]) {
+        // Cancel previous search task
         currentSearchTask?.cancel()
 
         let task = Task<SearchResponse, Error> {
             let url = try Endpoint.search(query: query).url(base: endpointBase)
             return try await request(url: url)
         }
-        
         currentSearchTask = task
         
         do {
-            return try await task.value
+            let response = try await task.value
+            
+            return (response.search_id, response.results)
+            
         } catch is CancellationError {
             throw APIError.cancelled
         }
-    }
-
-    func searchTracks(query: String) async throws -> [Track] {
-        let response = try await search(query: query)
-        return response.results
     }
 
     // MARK: - Track Lookup
@@ -151,20 +166,30 @@ final class APIService {
         return try await request(url: url)
     }
     
-    func fetchSearchResult(id: String) async throws -> SearchResponse {
+    func fetchHistoryItem(with id: String) async throws -> SearchResponse {
         let url = try Endpoint.historyItem(id: id).url(base: endpointBase)
         return try await request(url: url)
     }
     
     // MARK: - Delete History
-    func deleteAllHistory() async throws -> DeleteResponse {
+    func deleteAllHistoryItems() async throws -> Int {
         let url = try Endpoint.deleteAll.url(base: endpointBase)
-        return try await request(url: url, method: "DELETE")
+        let response: DeleteResponse = try await request(url: url, method: "DELETE")
+        return response.deleted_count
     }
 
-    func deleteHistoryItem(id: String) async throws -> DeleteItemResponse {
+    func deleteHistoryItem(with id: String) async throws -> Bool {
         let url = try Endpoint.deleteItem(id: id).url(base: endpointBase)
-        return try await request(url: url, method: "DELETE")
+        let response: DeleteItemResponse = try await request(url: url, method: "DELETE")
+        return response.deleted
+    }
+    
+    // MARK: - Beatport Track ID Lookup
+    func fetchBeatportTrackID(artist: String, fullTitle: String) async throws -> Int {
+        let parsed = fullTitle.parseTitleAndMix()
+        let url = try Endpoint.beatportTrackID(artist: artist, title: parsed.title, mix: parsed.mix).url(base: endpointBase)
+        let response: BeatportTrackIDResponse = try await request(url: url)
+        return response.track_id
     }
     
     // MARK: - Core Request
@@ -178,7 +203,10 @@ final class APIService {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         
 #if DEBUG
-        print("🌐 \(method):", url.absoluteString)
+        print("🌐 [API Request] \(method): \(url.absoluteString)")
+        if let headers = request.allHTTPHeaderFields, !headers.isEmpty {
+            print("  Headers: \(headers)")
+        }
 #endif
         
         do {
@@ -197,26 +225,8 @@ final class APIService {
                 throw APIError.badResponse(statusCode: http.statusCode)
             }
             
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .custom { decoder in
-                let container = try decoder.singleValueContainer()
-                let string = try container.decode(String.self)
-                
-                if let date = APIService.iso8601WithFractional.date(from: string) {
-                    return date
-                }
-                if let date = APIService.iso8601NoFractional.date(from: string) {
-                    return date
-                }
-                
-                throw DecodingError.dataCorruptedError(
-                    in: container,
-                    debugDescription: "Invalid date format: \(string)"
-                )
-            }
-            
             do {
-                return try decoder.decode(T.self, from: data)
+                return try JSONDecoder.customDateDecoder.decode(T.self, from: data)
             } catch {
                 throw APIError.decodingError
             }
@@ -230,18 +240,241 @@ final class APIService {
         }
     }
     
-    // MARK: - Date Decoding
-    nonisolated(unsafe) private static let iso8601WithFractional: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    
+    // MARK: - Artwork Fetching
+    
+    private let artworkCache = NSCache<NSURL, NSData>()
+    
+    private static let yearFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy"
         return formatter
     }()
     
-    nonisolated(unsafe) private static let iso8601NoFractional: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter
+    /// Fetches artwork and release date from the iTunes Search API for a given track and returns an updated track.
+    public func fetchArtwork(for track: Track) async -> Track {
+        // If we already have both pieces of information, we don't need to fetch again.
+        guard track.artworkURL == nil || track.releaseDate == nil else { return track }
+        
+        var updatedTrack = track
+        if let artworkInfo = await findArtwork(for: track) {
+            updatedTrack.artworkURL = artworkInfo.artworkURL
+            if let date = artworkInfo.releaseDate {
+                updatedTrack.releaseDate = APIService.yearFormatter.string(from: date)
+            }
+        }
+        return updatedTrack
+    }
+
+    func fetchArtworkData(for track: Track) async -> Data? {
+        // First, ensure we have a URL to work with.
+        guard let url = track.artworkURL else {
+            // If the track doesn't have a URL, try finding one first.
+            let updatedTrack = await fetchArtwork(for: track)
+            // If a URL was found, call this function again with the updated track.
+            if updatedTrack.artworkURL != nil {
+                return await fetchArtworkData(for: updatedTrack)
+            }
+            // Otherwise, we can't proceed.
+            return nil
+        }
+        
+        // Check the cache before downloading.
+        if let cachedData = artworkCache.object(forKey: url as NSURL) {
+            return cachedData as Data
+        }
+        
+        // If not in cache, download the data.
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            // Store the downloaded data in the cache.
+            artworkCache.setObject(data as NSData, forKey: url as NSURL)
+            return data
+        } catch {
+            // Use #if DEBUG to only print errors during development
+#if DEBUG
+            print("Error fetching artwork data: \(error)")
+#endif
+            return nil
+        }
+    }
+
+    private func findArtwork(for track: Track) async -> (artworkURL: URL?, releaseDate: Date?)? {
+        let parsedTitle = track.title.parseTitleAndMix()
+        let parsedArtist = track.artist.replacingOccurrences(of: "Local File", with: "", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(.init(charactersIn: "-,")))
+        let query = "\(parsedArtist) \(parsedTitle.title)"
+        var components = URLComponents(string: "https://itunes.apple.com/search")!
+        components.queryItems = [
+            URLQueryItem(name: "term", value: query),
+            URLQueryItem(name: "entity", value: "song"),
+            URLQueryItem(name: "media", value: "music")
+            
+        ]
+        
+        // URLComponents encodes spaces as %20, but the iTunes API prefers '+' for spaces.
+        guard let tempUrl = components.url,
+              let url = URL(string: tempUrl.absoluteString.replacingOccurrences(of: "%20", with: "+")) else {
+            return nil
+        }
+        
+        #if DEBUG
+        print("🌐 [iTunes Request]: \(url.absoluteString)")
+        #endif
+        
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            
+            let response = try JSONDecoder.customDateDecoder.decode(iTunesSearchResponse.self, from: data)
+            
+            // Filter results based on the specified criteria.
+            let filteredResults = response.results.filter { result in
+                // 1. Exclude compilations by checking for `collectionArtistName`.
+                //    If this field exists, it's often "Various Artists".
+                if result.collectionArtistName != nil {
+                    return false
+                }
+                
+                // 2. Prioritize singles or EPs where the collection name contains the track name.
+                //    This helps avoid picking tracks from unrelated albums.
+                guard let trackName = result.trackName else {
+                    return false
+                }
+                if !result.collectionName.localizedCaseInsensitiveContains(trackName) {
+                    return false
+                }
+                
+                return true
+            }
+
+            // Sort the filtered results by release date to find the earliest (original) version.
+            guard let firstResult = filteredResults.sorted(by: { $0.releaseDate < $1.releaseDate }).first else {
+                return nil
+            }
+            
+            let releaseDate = firstResult.releaseDate
+            var highResURL: URL?
+            
+            if let artworkURL = firstResult.artworkUrl100 {
+                // Modify URL for higher resolution artwork
+                let highResURLString = artworkURL.absoluteString.replacingOccurrences(of: "100x100", with: "500x500")
+                highResURL = URL(string: highResURLString)
+            }
+            
+            return (artworkURL: highResURL, releaseDate: releaseDate)
+            
+        } catch {
+            // Don't log errors as this is an optional enhancement
+            return nil
+        }
+    }
+    
+    // MARK: - iTunes Artist Search
+    func searchForArtistAlbums(_ artistName: String) async throws -> [iTunesSearchResult] {
+        var components = URLComponents(string: "https://itunes.apple.com/search")!
+        components.queryItems = [
+            URLQueryItem(name: "term", value: artistName),
+            URLQueryItem(name: "media", value: "music"),
+            URLQueryItem(name: "entity", value: "album"),
+            URLQueryItem(name: "attribute", value: "artistTerm"),
+            URLQueryItem(name: "limit", value: "200")
+        ]
+        
+        guard let tempUrl = components.url,
+              let url = URL(string: tempUrl.absoluteString.replacingOccurrences(of: "%20", with: "+")) else {
+            throw APIError.invalidURL
+        }
+        
+        #if DEBUG
+        print("🌐 [iTunes Artist Album Request]: \(url.absoluteString)")
+        #endif
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw APIError.badResponse(statusCode: (response as? HTTPURLResponse)?.statusCode ?? -1)
+        }
+        
+        do {
+            let searchResponse = try JSONDecoder.customDateDecoder.decode(iTunesSearchResponse.self, from: data)
+            // Sort by release date, newest first
+            return searchResponse.results.sorted { $0.releaseDate > $1.releaseDate }
+        } catch {
+            throw APIError.decodingError
+        }
+    }
+
+    // MARK: - iTunes Album Track Lookup
+    func fetchTracksForAlbum(_ collectionId: Int) async throws -> [iTunesSearchResult] {
+        var components = URLComponents(string: "https://itunes.apple.com/lookup")!
+        components.queryItems = [
+            URLQueryItem(name: "id", value: String(collectionId)),
+            URLQueryItem(name: "entity", value: "song")
+        ]
+        
+        guard let url = components.url else {
+            throw APIError.invalidURL
+        }
+        
+        #if DEBUG
+        print("🌐 [iTunes Album Tracks Request]: \(url.absoluteString)")
+        #endif
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw APIError.badResponse(statusCode: (response as? HTTPURLResponse)?.statusCode ?? -1)
+        }
+        
+        do {
+            let searchResponse = try JSONDecoder.customDateDecoder.decode(iTunesSearchResponse.self, from: data)
+            // Filter out the first result which is the collection itself, and sort by track number
+            return searchResponse.results
+                .filter { $0.wrapperType == "track" }
+                .sorted { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
+        } catch {
+            throw APIError.decodingError
+        }
+    }
+}
+
+
+
+private extension JSONDecoder {
+    
+    static let customDateDecoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let string = try container.decode(String.self)
+            
+            let iso8601WithFractional: ISO8601DateFormatter = {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                formatter.timeZone = TimeZone(secondsFromGMT: 0)
+                return formatter
+            }()
+            
+            if let date = iso8601WithFractional.date(from: string) {
+                return date
+            }
+            
+            let iso8601NoFractional: ISO8601DateFormatter = {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime]
+                formatter.timeZone = TimeZone(secondsFromGMT: 0)
+                return formatter
+            }()
+            
+            if let date = iso8601NoFractional.date(from: string) {
+                return date
+            }
+            
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid date format: \(string)"
+            )
+        }
+        return decoder
     }()
 }

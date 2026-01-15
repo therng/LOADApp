@@ -1,16 +1,12 @@
-import SafariServices
 import SwiftUI
+import SafariServices
 
 struct SafariView: UIViewControllerRepresentable {
     let url: URL
 
     func makeUIViewController(context: Context) -> SFSafariViewController {
-        let controller = SFSafariViewController(url: url)
-        controller.dismissButtonStyle = .close
-        return controller
+        SFSafariViewController(url: url)
     }
 
-    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {
-        // No update needed for a static URL.
-    }
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }

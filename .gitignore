@@ -61,3 +61,6 @@ Icon?
 *.swp
 .env
 .env.*
+
+.gemini/
+gha-creds-*.json

@@ -1,65 +1,43 @@
 import SwiftUI
 import Combine
-import AVFoundation
 
 @MainActor
 class AudioVisualizerManager: ObservableObject {
-    // จำนวนแท่งกราฟ (Apple Lock Screen ใช้ 4 แท่งหลัก)
     static let barCount = 4
     
-    @Published var audioLevels: [Float] = Array(repeating: 0.2, count: AudioVisualizerManager.barCount)
+    @Published var audioLevels: [Float] = Array(repeating: 0.2, count: barCount)
     
     private var timer: AnyCancellable?
-    private var isAnalyzing = false
-    private var phase: Double = 0.0
     
-    func startAnalyzing(isPlaying: Bool) {
-        guard isPlaying else {
-            stopAnalyzing()
-            return
-        }
+    func start() {
+        // Ensure no existing timer is running to avoid duplicates
+        stop()
         
-        guard !isAnalyzing else { return }
-        isAnalyzing = true
-        
-        // Refresh rate สำหรับความลื่นไหลระดับ iOS
-        timer = Timer.publish(every: 0.1, on: .main, in: .common)
+        // Create a timer that fires every 0.2 seconds for a fluid animation
+        timer = Timer.publish(every: 0.2, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
-                self?.updateLockScreenStyleLevels()
+                self?.randomizeLevels()
             }
     }
     
-    func stopAnalyzing() {
-        isAnalyzing = false
+    func stop() {
         timer?.cancel()
         timer = nil
         
-        // กลับสู่สถานะหยุดนิ่ง (แท่งสั้นเท่ากัน)
+        // Animate back to a resting state
         withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-            audioLevels = Array(repeating: 0.2, count: AudioVisualizerManager.barCount)
+            audioLevels = Array(repeating: 0.2, count: Self.barCount)
         }
     }
     
-    private func updateLockScreenStyleLevels() {
-        var currentLevels = audioLevels
-        phase += 0.5
+    private func randomizeLevels() {
+        // Generate a new set of random levels for the bars
+        let newLevels = (0..<Self.barCount).map { _ in Float.random(in: 0.2...1.0) }
         
-        for i in 0..<currentLevels.count {
-            // จำลองลอจิกคลื่นเสียงของ Apple ที่แต่ละแท่งขยับไม่พร้อมกัน
-            let speed = Double(i + 1) * 0.5
-            let wave = abs(sin(phase + speed))
-            
-            // สุ่มเล็กน้อยให้ดูมีความเป็นธรรมชาติ (Organic)
-            let random = Float.random(in: 0.2...0.9)
-            let target = min(1.0, max(0.2, Float(wave) * random))
-            
-            currentLevels[i] = target
-        }
-        
-        // ใช้ Spring animation ที่มีความหนืดพอดีแบบ iOS
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
-            self.audioLevels = currentLevels
+        // Animate the transition to the new levels
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
+            self.audioLevels = newLevels
         }
     }
 }
@@ -69,30 +47,19 @@ struct RealtimeAudioWaveView: View {
     @StateObject private var visualizer = AudioVisualizerManager()
     
     var body: some View {
-        HStack(alignment: .center, spacing: 3) {
-            ForEach(0..<visualizer.audioLevels.count, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.primary) // สีจะเปลี่ยนตาม Light/Dark mode อัตโนมัติ
+        HStack(spacing: 3) {
+            ForEach(0..<AudioVisualizerManager.barCount, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(.blue)
                     .frame(
-                        width: 3, // แท่งบางๆ แบบ iOS
+                        width: 3,
                         height: max(CGFloat(visualizer.audioLevels[index]) * 22, 4)
                     )
             }
         }
-        .frame(width: 24, height: 24) // ขนาด Compact สำหรับใส่ในแถบควบคุม
+        .frame(width: 24, height: 24, alignment: .center)
         .onAppear {
-            if player.isPlaying { visualizer.startAnalyzing(isPlaying: true) }
-        }
-        .onChange(of: player.isPlaying) { _, isPlaying in
-            visualizer.startAnalyzing(isPlaying: isPlaying)
-        }
-        .onChange(of: player.currentTrack) { _, _ in
-            visualizer.stopAnalyzing()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                if player.isPlaying {
-                    visualizer.startAnalyzing(isPlaying: true)
-                }
+                visualizer.start()
             }
-        }
     }
 }

@@ -1,245 +1,251 @@
 import SwiftUI
-import Combine
 
 struct FullPlayerView: View {
     @EnvironmentObject var player: AudioPlayerService
-    @State private var safariURL: URL?
-    @State private var safariDetent: PresentationDetent = .medium
-    @State private var isTitleMarqueeActive = false
-
+    @Environment(\.openURL) var openURL
+    
+    // Local state to manage the slider scrubbing
+    @State private var sliderValue: Double = 0.0
+    @State private var isEditingSlider: Bool = false
+    @State private var isShowingQueue: Bool = false
 
     var body: some View {
-        ZStack {
-            GeometryReader { proxy in
-                VStack(spacing: 20) {
-                    headerMenu
-                    Spacer(minLength: 8)
-                    ArtworkView(size: min(proxy.size.width * 0.78, 320))
+        VStack(spacing: 0) {
+            // A handle to indicate the sheet can be dismissed
+            Capsule()
+                .fill(Color.secondary.opacity(0.5))
+                .frame(width: 40, height: 5)
+                .padding(.vertical, 10)
 
+            // Album Artwork
+            artwork
+                .padding(.vertical, 30)
+
+            // Track Information
+            trackDetails
+            
+            // Scrubber / Progress Bar
+            scrubber
+                .padding(.vertical, 20)
+
+            // Playback Controls
+            controls
+
+            // Secondary Controls
+            HStack (alignment: .center, spacing: 40){
+                Menu {
                     if let track = player.currentTrack {
-                        TrackInfoView(
-                            title: track.title,
-                            artist: track.artist,
-                            isMarqueeActive: $isTitleMarqueeActive,
-                            titleFont: titleFont,
-                            artistFont: artistFont
-                        )
+                        ShareLink(item: track.download) {
+                            Label("Share Track", systemImage: "square.and.arrow.up")
+                        }
+
+                        Button(action: { player.enqueueNext(track) }) {
+                            Label("Play Next", systemImage: "text.insert")
+                        }
+                        
+                        Button(action: { player.addToQueue(track) }) {
+                            Label("Add to Queue", systemImage: "text.badge.plus")
+                        }
                     }
-
-                    PlaybackProgressView(progress: player.progress, onSeek: player.seek)
-                    PlaybackControlsView()
-                    AirPlayRoutePicker()
-                        .frame(width: 45, height: 45)
-                        .accessibilityLabel("AirPlay")
-
-                    Spacer(minLength: 8)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.title2)
+                        .frame(height: 28)
+                        .frame(width: 44, height: 44) // Standard tap target
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 24)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .disabled(player.currentTrack == nil)
+                    
+           
+                AirPlayButtonView()
+                    .font(.largeTitle)
+                    .frame(height: 28)
+                    .frame(width: 44, height: 44)
+         
+                Button(action: {
+                    isShowingQueue = true
+                }) {
+                    Image(systemName: "list.bullet")
+                        .font(.title2)
+                        .frame(height: 28)
+                        .frame(width: 44, height: 44) // Standard tap target
+                }
+                .disabled(player.currentTrack == nil)
+            }
+            .foregroundStyle(.primary)
+            .buttonStyle(.plain)
+            .padding(.top,20)
+        }
+        .padding(.horizontal,35)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(background)
+        .sheet(isPresented: $isShowingQueue) {
+            NavigationStack {
+                QueueView()
+                    .navigationTitle("Up Next")
+            }
+            .environmentObject(player)
+        }
+        .onChange(of: player.currentTime) { _, newTime in
+            // Update slider position based on player's time, but only if the user isn't dragging it.
+            if !isEditingSlider {
+                sliderValue = newTime
             }
         }
-        .background(LinearGradient(gradient: Gradient(colors: [Color(.systemBackground), Color(.secondarySystemBackground)]), startPoint: .top, endPoint: .bottom))
-        .sheet(isPresented: Binding(get: { safariURL != nil }, set: { if !$0 { safariURL = nil } })) {
-            if let safariURL {
-                SafariView(url: safariURL)
-                    .presentationDetents([.medium, .large], selection: $safariDetent)
-                    .presentationDragIndicator(.visible)
-                
-            }
-        }
-  
-        .onChange(of: player.currentTrack?.id) { _, _ in
-            isTitleMarqueeActive = false
+        .onAppear {
+            // Set initial slider position
+            sliderValue = player.currentTime
         }
     }
 
-    private var headerMenu: some View {
-        NowPlayingHeaderView(
-            track: player.currentTrack,
-            player: player,
-            onMenuAction: {
-                safariDetent = .medium
-                safariURL = $0
-            }
-        )
-    }
+    // MARK: - Subviews
 
-    private var titleFont: Font {
-        .title2.weight(.bold)
-    }
-
-    private var artistFont: Font {
-        .title3
-    }
-
-    private func ArtworkView(size: CGFloat) -> some View {
+    private var background: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 20)
-                .fill(.thinMaterial)
-
-            Image(systemName: "music.note")
-                .font(.system(size: 80))
-                .foregroundStyle(.secondary)
+            if let artwork = player.artworkImage {
+                Image(uiImage: artwork)
+                    .resizable()
+                    .aspectRatio(contentMode:.fill)
+                    .blur(radius:40, opaque: true)
+                    
+            } else {
+                // Use the calculated dominant color as a fallback
+                Rectangle()
+                    .fill(player.dominantColor ?? .black)
+            }
         }
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .shadow(color: Color.primary.opacity(0.15), radius: 20, y: 10)
-        .accessibilityLabel("Album artwork")
+        .ignoresSafeArea()
     }
 
-    private func PlaybackControlsView() -> some View {
+    private var artwork: some View {
+        Group {
+            if let artwork = player.artworkImage {
+                Image(uiImage: artwork)
+                    .resizable()
+                    .aspectRatio(1, contentMode: .fit)
+                    .cornerRadius(12)
+                    .shadow(color: .black.opacity(0.25), radius: 10, y: 5)
+            } else {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.2))
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 80))
+                            .foregroundColor(.secondary)
+                    }
+            }
+        }
+    }
+
+    private var trackDetails: some View {
+        VStack(spacing: 8) {
+            Text(player.currentTrack?.title ?? "Not Playing")
+                .font(.title2)
+                .fontWeight(.bold)
+                .lineLimit(1)
+                .multilineTextAlignment(.center)
+            
+            Text(player.currentTrack?.artist ?? " ")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Text(player.currentTrack?.releaseDate ?? " ")
+                .font(.system(size: 10, weight: .bold, design: .default))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    private var scrubber: some View {
+        VStack(spacing: 4) {
+            Slider(
+                value: $sliderValue,
+                in: 0...(player.duration > 0 ? player.duration : 1),
+                onEditingChanged: { isEditing in
+                    isEditingSlider = isEditing
+                    if isEditing {
+                        player.startScrubbing()
+                    } else {
+                        player.endScrubbing(at: sliderValue)
+                    }
+                }
+            )
+            
+            HStack {
+                Text((isEditingSlider ? sliderValue : player.currentTime).formattedAsTime())
+                Spacer()
+                Text(player.duration.formattedAsTime())
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundColor(.secondary)
+        }
+    }
+
+    private var controls: some View {
         HStack(spacing: 40) {
-            Button(action: {
-                Haptics.impact()
-                player.playPrevious()
-            }){
-            Image(systemName: "backward.fill")
-                    .font(.system(size: 32))
-             
+            Button(action: player.playPrevious) {
+                Image(systemName: "backward.fill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 30)
+                    .frame(maxWidth: .infinity)
             }
+            .disabled(player.currentTrack == nil)
 
-            Button(action: {
-                Haptics.impact()
-                player.togglePlayPause()
-            }) {
-                Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 64))
-                    .symbolEffect(.bounce, value: player.isPlaying)
+            Button(action: player.togglePlayPause) {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 50)
+                    .frame(maxWidth: .infinity)
             }
+            .disabled(player.currentTrack == nil)
 
-            Button(action: {
-                Haptics.impact()
-                player.playNext()
-            }) {
+            Button(action: player.playNext) {
                 Image(systemName: "forward.fill")
-                    .font(.system(size: 32))
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 30)
+                    .frame(maxWidth: .infinity)
             }
+            .disabled(player.currentTrack == nil)
         }
         .foregroundStyle(.primary)
+        .buttonStyle(.plain)
+        .padding(.vertical, 20)
     }
 }
 
-// MARK: - Subviews
+// MARK: - Time Formatter Helper
 
-private struct PlaybackProgressView: View {
-    @ObservedObject var progress: AudioPlayerService.PlaybackProgress
-    let onSeek: (Double) -> Void
-    @State private var isEditing = false
-    @State private var pendingTime: Double?
+private extension TimeInterval {
+    func formattedAsTime() -> String {
+        guard self >= 0, self.isFinite else { return "0:00" }
+        let minutes = Int(self) / 60
+        let seconds = Int(self) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
 
-    var body: some View {
-        let sliderBinding = Binding<Double>(
-            get: { pendingTime ?? progress.currentTime },
-            set: { pendingTime = $0 }
+#Preview {
+    let player: AudioPlayerService = {
+        let service = AudioPlayerService()
+        let track = Track(
+            artist: "craig connelly",
+            title: "Other side of the world",
+            duration: 320,
+            key: "preview-track",
+            releaseDate: "2023"
         )
+        // By using `setQueue`, the service's `currentTrack` will be updated,
+        // allowing the preview to display the track's metadata.
+        // Full playback state is not available due to service limitations.
+        service.setQueue([track])
+        return service
+    }()
 
-        VStack(spacing: 8) {
-            Slider(
-                value: sliderBinding,
-                in: 0...max(progress.duration, 1),
-                onEditingChanged: { editing in
-                    isEditing = editing
-                    if !editing {
-                        onSeek(pendingTime ?? progress.currentTime)
-                        pendingTime = nil
-                    }
-                }
-            )
-            .tint(.accentColor)
-            .onChange(of: progress.currentTime) { _, _ in
-                if !isEditing {
-                    pendingTime = nil
-                }
-            }
-
-            HStack {
-                Text(progress.currentTime.mmss)
-                Spacer()
-                Text(progress.duration.mmss)
-            }
-            .frame(maxWidth: .infinity)
-            .font(.caption)
-            .foregroundStyle(.primary.opacity(0.7))
-            .monospacedDigit()
-        }
-    }
+    return FullPlayerView()
+        .environmentObject(player)
+        .preferredColorScheme(.dark)
 }
 
-private struct NowPlayingHeaderView: View {
-    let track: Track?
-    let player: AudioPlayerService
-    let onMenuAction: (URL) -> Void
-
-    var body: some View {
-        HStack {
-            Text("Now Playing")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundStyle(.primary.opacity(0.8))
-
-            Spacer()
-
-            Menu {
-                if let track = track {
-                    TrackActionMenuItems(track: track, onSave: onMenuAction, player: player)
-                } else {
-                    Button("No Track", systemImage: "music.note") {}
-                        .disabled(true)
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.title2)
-                    .foregroundStyle(.primary)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-struct TrackInfoView: View {
-    let title: String
-    let artist: String
-    @Binding var isMarqueeActive: Bool
-    let titleFont: Font
-    let artistFont: Font
-
-    var body: some View {
-        VStack(spacing: 8) {
-            MarqueeText(
-                text: title,
-                font: titleFont,
-                color: .primary,
-                isActive: isMarqueeActive,
-                speed: 32,
-                spacing: 32,
-                alignment: .center
-            )
-            .onTapGesture {
-                isMarqueeActive.toggle()
-            }
-            .accessibilityLabel(title)
-
-            Text(artist)
-                .font(artistFont)
-                .foregroundStyle(.primary.opacity(0.7))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-
-extension Double {
-    var mmss: String {
-        guard isFinite else { return "0:00" }
-        let totalSeconds = max(0, Int(self))
-        let minutes = (totalSeconds / 60) % 60
-        let seconds = totalSeconds % 60
-        let hours = totalSeconds / 3600
-        return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
-            : String(format: "%d:%02d", minutes, seconds)
-    }
-}

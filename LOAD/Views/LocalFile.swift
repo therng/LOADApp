@@ -1,7 +1,6 @@
 import SwiftUI
 import AVFoundation
 
-
 struct LocalDocumentBrowser: View {
     @State private var files: [LocalFile] = []
     @State private var isLoadingFiles = false
@@ -10,24 +9,20 @@ struct LocalDocumentBrowser: View {
     
     var body: some View {
         NavigationView {
-            VStack(spacing: 12) {
-                Group {
-                    if files.isEmpty && !isLoadingFiles {
-                        emptyStateView
-                    } else {
-                        fileList
-                    }
+            VStack(alignment: .leading, spacing: 4) {
+                if files.isEmpty && !isLoadingFiles {
+                    emptyStateView
+                } else {
+                    fileList
                 }
             }
-            .navigationTitle("Local Documents")
+            .navigationTitle("Local Files")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear(perform: loadDocuments)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: loadDocuments) {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
+            .refreshable {
+                 loadDocuments()
+            }
+            .onAppear {
+                loadDocuments()
             }
         }
     }
@@ -37,34 +32,35 @@ struct LocalDocumentBrowser: View {
     private var fileList: some View {
         List {
             ForEach(files) { file in
-                Button(action: {
-                    handleFileTap(file)
-                }) {
-                    HStack(spacing: 12) {
+                Button(action: { handleFileTap(file) }) {
+                    HStack(spacing: 16) {
+                        fileIcon
+
                         VStack(alignment: .leading, spacing: 4) {
                             Text(file.name)
-                                .font(.system(size: 16, weight: .medium))
+                                .font(.headline)
                                 .lineLimit(1)
-                                .foregroundColor(isCurrentTrack(file) ? .blue : .primary)
+                                .foregroundColor(isCurrentTrack(file) ? .accentColor : .primary)
                             
                             HStack(spacing: 8) {
                                 Text(file.creationDate)
                                 Text("•")
                                 Text(file.size)
                             }
-                            .font(.system(size: 13))
+                            .font(.subheadline)
                             .foregroundColor(.secondary)
                         }
                         
                         Spacer()
-                        
+                                            
                         if isCurrentTrack(file) {
-                            Image(systemName: "waveform")
-                                .foregroundColor(.blue)
+                           RealtimeAudioWaveView()
+                      
                         }
                     }
+                    .padding(.vertical, 8)
                 }
-                .padding(.vertical, 4)
+                .buttonStyle(.plain)
             }
             .onDelete(perform: deleteFile)
         }
@@ -73,22 +69,27 @@ struct LocalDocumentBrowser: View {
 
     private var emptyStateView: some View {
         VStack(spacing: 20) {
+            Spacer()
             Image(systemName: "folder.badge.questionmark")
                 .font(.system(size: 50))
                 .foregroundColor(.gray)
-            Text("ไม่พบไฟล์ใน Local Documents")
+            Text("No Files Found in LOAD Folder")
                 .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            Spacer()
         }
+        .frame(maxWidth: .infinity)
     }
     
     private var fileIcon: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: 8)
                 .fill(Color(.systemGray6))
-                .frame(width: 40, height: 50)
+                .frame(width: 50, height: 50)
             Image(systemName: "music.note")
-                .foregroundColor(.blue)
-                .font(.system(size: 18))
+                .foregroundColor(.accentColor)
+                .font(.system(size: 22))
         }
     }
 
@@ -99,19 +100,18 @@ struct LocalDocumentBrowser: View {
     }
 
     private func handleFileTap(_ file: LocalFile) {
-        let audioExtensions = ["mp3", "m4a", "wav"]
+        let audioExtensions = ["mp3", "m4a", "wav", "flac", "aac"]
         guard audioExtensions.contains(file.url.pathExtension.lowercased()) else { return }
         
-        // แก้ไขตรงนี้: ใส่ localURL เข้าไปด้วยเพื่อให้ Service รู้ว่าเป็นไฟล์ในเครื่อง
         let track = Track(
-            artist: "Local Device",
+            artist: "Local File",
             title: file.name,
-            duration: 0,
+            duration: 0, // Duration will be loaded by the player
             key: file.url.lastPathComponent,
-            localURL: file.url // <--- เพิ่มบรรทัดนี้ครับ
+            localURL: file.url
         )
         
-        player.playNow(track: track)
+        player.setQueue([track])
     }
 
     private func loadDocuments() {
@@ -121,20 +121,26 @@ struct LocalDocumentBrowser: View {
         
         do {
             let contents = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: [.fileSizeKey, .creationDateKey])
-            let df = DateFormatter(); df.dateFormat = "d MMM yyyy"
+            let df = DateFormatter(); df.dateStyle = .medium
             let bf = ByteCountFormatter(); bf.countStyle = .file
             
-            self.files = contents.map { url in
-                let attr = try? fileManager.attributesOfItem(atPath: url.path)
-                return LocalFile(
-                    url: url,
-                    name: url.lastPathComponent,
-                    size: bf.string(fromByteCount: attr?[.size] as? Int64 ?? 0),
-                    creationDate: df.string(from: attr?[.creationDate] as? Date ?? Date())
-                )
-            }.sorted(by: { $0.name < $1.name })
+            self.files = contents
+                .compactMap { url in
+                    guard let attr = try? fileManager.attributesOfItem(atPath: url.path) else { return nil }
+                    let creationDate = attr[.creationDate] as? Date ?? Date()
+                    let size = attr[.size] as? Int64 ?? 0
+                    
+                    return LocalFile(
+                        url: url,
+                        name: url.lastPathComponent,
+                        size: bf.string(fromByteCount: size),
+                        creationDate: df.string(from: creationDate)
+                    )
+                }
+                .sorted(by: { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
+
         } catch {
-            print("Error loading: \(error)")
+            print("Error loading documents: \(error)")
         }
         isLoadingFiles = false
     }
@@ -150,3 +156,11 @@ struct LocalDocumentBrowser: View {
         files.remove(atOffsets: offsets)
     }
 }
+
+#Preview {
+    NavigationStack {
+        LocalDocumentBrowser()
+            .environmentObject(AudioPlayerService.shared)
+    }
+}
+

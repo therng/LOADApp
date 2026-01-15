@@ -2,33 +2,23 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var player: AudioPlayerService
-    
-    @State private var selectedTab = 3
+    @State private var selectedTab: Int = 2
     @State private var isFullPlayerPresented = false
-    
     // Shared state between Search and History
     @State private var searchText = ""
-    @State private var isSearchPresented = true
+    @State private var isSearchPresented: Bool = false
+
     
     var body: some View {
         TabView(selection: $selectedTab) {
-            Tab("Search", systemImage: "magnifyingglass", value: 0, role: .search) {
-                SearchView(
-                    searchText: $searchText,
-                    isSearchPresented: $isSearchPresented
-                )
-            }
-            
-            Tab("Files", systemImage: "waveform", value: 1) {
-              RealtimeAudioWaveView()
-            }
-            Tab("Local", systemImage: "square.and.arrow.down", value: 2) {
+            Tab("Local", systemImage: "folder", value: 0, role: .none) {
                 LocalDocumentBrowser()
             }
-            
-            Tab("History", systemImage: "clock.arrow.circlepath", value: 3) {
-                HistoryView(
-                    selectedTab: $selectedTab,
+            Tab("History", systemImage: "clock.arrow.circlepath", value: 1) {
+                HistoryView(selectedTab: $selectedTab, searchText: $searchText, isSearchPresented: $isSearchPresented)
+            }
+            Tab("Search", systemImage: "magnifyingglass", value: 2, role: .search) {
+                SearchView(
                     searchText: $searchText,
                     isSearchPresented: $isSearchPresented
                 )
@@ -38,17 +28,17 @@ struct ContentView: View {
         .tabViewStyle(.sidebarAdaptable)
         .searchToolbarBehavior(.minimize)
         .tabBarMinimizeBehavior(.onScrollDown)
-        .sensoryFeedback(.selection, trigger: selectedTab)
         .tabViewBottomAccessory(isEnabled: player.currentTrack != nil) {
             MiniPlayerView(isFullPlayerPresented: $isFullPlayerPresented)
         }
+        .sensoryFeedback(.selection, trigger: selectedTab)
         .onChange(of: selectedTab) { _, _ in
             Haptics.selection()
         }
         .sheet(isPresented: $isFullPlayerPresented) {
             FullPlayerView()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+                .presentationDragIndicator(.hidden)
+                .ignoresSafeArea(edges: .all)
         }
     }
 }
