@@ -15,7 +15,19 @@ struct TrackActionMenuItems: View {
             Haptics.selection()
             player.addToQueue(track)
         }
-
+        Button("Copy", systemImage: "document.on.document") {
+            Haptics.selection()
+            let textToCopy = "\(track.artist) - \(track.title)"
+            #if canImport(UIKit)
+            UIPasteboard.general.string = textToCopy
+            #elseif canImport(AppKit)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(textToCopy, forType: .string)
+            #endif
+        }
+        
+        
+        
         ShareLink(
             item: track.download,
             subject: Text(track.title),
@@ -30,3 +42,4 @@ struct TrackActionMenuItems: View {
         }
     }
 }
+

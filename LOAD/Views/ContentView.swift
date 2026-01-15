@@ -2,35 +2,43 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var player: AudioPlayerService
-    @State private var selectedTab = 0
-    @State private var isFullPlayerPresented = false
-    @State private var searchText = ""
-    @State private var tracks: [Track] = []
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-    @State private var isSearchPresented: Bool?
     
+    @State private var selectedTab = 3
+    @State private var isFullPlayerPresented = false
+    
+    // Shared state between Search and History
+    @State private var searchText = ""
+    @State private var isSearchPresented = true
     
     var body: some View {
-        TabView(selection: $selectedTab){
+        TabView(selection: $selectedTab) {
             Tab("Search", systemImage: "magnifyingglass", value: 0, role: .search) {
-                SearchView()
-                }
-            
-            Tab("Queue", systemImage: "list.clipboard.fill", value: 1) {
-                QueueView()
+                SearchView(
+                    searchText: $searchText,
+                    isSearchPresented: $isSearchPresented
+                )
             }
-            Tab("History", systemImage: "clock.arrow.circlepath", value: 2) {
-                HistoryView()
+            
+            Tab("Files", systemImage: "waveform", value: 1) {
+              RealtimeAudioWaveView()
+            }
+            Tab("Local", systemImage: "square.and.arrow.down", value: 2) {
+                LocalDocumentBrowser()
+            }
+            
+            Tab("History", systemImage: "clock.arrow.circlepath", value: 3) {
+                HistoryView(
+                    selectedTab: $selectedTab,
+                    searchText: $searchText,
+                    isSearchPresented: $isSearchPresented
+                )
             }
         }
         .tabViewSearchActivation(.searchTabSelection)
         .tabViewStyle(.sidebarAdaptable)
         .searchToolbarBehavior(.minimize)
-
         .tabBarMinimizeBehavior(.onScrollDown)
         .sensoryFeedback(.selection, trigger: selectedTab)
-
         .tabViewBottomAccessory(isEnabled: player.currentTrack != nil) {
             MiniPlayerView(isFullPlayerPresented: $isFullPlayerPresented)
         }
@@ -44,7 +52,6 @@ struct ContentView: View {
         }
     }
 }
-
 
 #Preview {
     ContentView()

@@ -1,0 +1,63 @@
+# Xcode
+#
+## Build artifacts
+build/
+*.xcarchive
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+## DerivedData
+DerivedData/
+
+## User settings
+*.xcuserdatad
+xcuserdata/
+
+## Project files
+*.xcodeproj/project.xcworkspace/
+*.xcworkspace/contents.xcworkspacedata
+*.xcscmblueprint
+*.xccheckout
+
+# Swift Package Manager
+.swiftpm/
+Packages/
+Package.resolved
+.build/
+
+# CocoaPods
+# We recommend against adding the Pods directory to your .gitignore.
+# However, if you choose to ignore it, uncomment the line below.
+# Pods/
+
+# Carthage
+Carthage/Build/
+Carthage/Checkouts/
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.apdisk
+
+# Misc
+*.hmap
+*.moved-aside
+*~.nib
+*.swp
+.env
+.env.*

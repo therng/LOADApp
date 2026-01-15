@@ -6,9 +6,15 @@ struct HistoryView: View {
         f.unitsStyle = .short
         return f
     }()
+    
+    @Binding var selectedTab: Int
+    @Binding var searchText: String
+    @Binding var isSearchPresented: Bool
+    @EnvironmentObject var player: AudioPlayerService
     @State private var historyItems: [HistoryItem] = []
     @State private var isLoading = false
     @State private var showErrorAlert = false
+    @State private var showClearConfirmation = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -26,11 +32,25 @@ struct HistoryView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     if !historyItems.isEmpty {
-                        Button("Clear", role: .destructive) {
-                            clearHistory()
+                        Button(role: .destructive) {
+                            showClearConfirmation = true
+                        } label: {
+                            Image(systemName: "trash")
                         }
                     }
                 }
+            }
+            .confirmationDialog(
+                "Clear History",
+                isPresented: $showClearConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Clear All History", role: .destructive) {
+                    clearHistory()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This action cannot be undone.")
             }
             .task {
                 await loadHistory(force: true)
@@ -59,21 +79,20 @@ struct HistoryView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .contextMenu {
-                    Button("Retry Search", systemImage: "magnifyingglass.circle") {
-                        Task { await retrySearch(item) }
-                    }
-                }
                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                     Button {
                         Task { await addAllToQueue(item) }
                     } label: {
                         Image(systemName: "text.badge.plus")
-                            .accessibilityLabel("Add All")
                     }
                     .tint(.blue)
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button("Retry", systemImage: "magnifyingglass.circle") {
+                        retrySearch(item)
+                    }
+                    .tint(.accentColor)
+                    
                     Button(role: .destructive) {
                         deleteItem(item)
                     } label: {
@@ -101,29 +120,25 @@ struct HistoryView: View {
         }
     }
 
-    // MARK: - Actions
+    private func retrySearch(_ item: HistoryItem) {
+        Haptics.impact(.medium)
+        // Update shared bindings
+        searchText = item.query
+        isSearchPresented = false // Closing the bar often triggers the search in onSubmit logic or onChange
+        selectedTab = 0 // Switch to Search Tab
+    }
 
     private func loadHistory(force: Bool = false) async {
         if isLoading { return }
-        if !force && !historyItems.isEmpty { return }
-
         isLoading = true
-        errorMessage = nil
-        showErrorAlert = false
-
         do {
             let items = try await APIService.shared.fetchHistory()
             historyItems = items
-            isLoading = false
         } catch {
-            if isCancellation(error) {
-                isLoading = false
-                return
-            }
             errorMessage = error.localizedDescription
             showErrorAlert = true
-            isLoading = false
         }
+        isLoading = false
     }
 
     private func clearHistory() {
@@ -150,61 +165,18 @@ struct HistoryView: View {
         }
     }
 
-    private func retrySearch(_ item: HistoryItem) async {
-        do {
-            let response = try await APIService.shared.fetchSearchResult(id: item.search_id)
-            await MainActor.run {
-                Haptics.impact(.medium)
-                AudioPlayerService.shared.addHistory(from: response)
-                historyItems.removeAll { $0.search_id == item.search_id }
-                historyItems.insert(item, at: 0)
-                AudioPlayerService.shared.setQueue(response.results, startAt: response.results.first)
-                if let first = response.results.first {
-                    AudioPlayerService.shared.play(track: first)
-                }
-            }
-        } catch {
-            await MainActor.run {
-                errorMessage = error.localizedDescription
-                showErrorAlert = true
-            }
-        }
-    }
-
     private func addAllToQueue(_ item: HistoryItem) async {
         do {
             let response = try await APIService.shared.fetchSearchResult(id: item.search_id)
             await MainActor.run {
-                Haptics.selection()
                 AudioPlayerService.shared.addHistory(from: response)
                 for track in response.results {
                     AudioPlayerService.shared.addToQueue(track)
                 }
             }
         } catch {
-            await MainActor.run {
-                errorMessage = error.localizedDescription
-                showErrorAlert = true
-            }
+            errorMessage = error.localizedDescription
+            showErrorAlert = true
         }
-    }
-
-    private func isCancellation(_ error: Error) -> Bool {
-        if error is CancellationError { return true }
-        if let apiError = error as? APIService.APIError {
-            switch apiError {
-            case .cancelled:
-                return true
-            case .network(let underlying):
-                if let urlError = underlying as? URLError, urlError.code == .cancelled {
-                    return true
-                }
-                let nsError = underlying as NSError
-                return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
-            default:
-                return false
-            }
-        }
-        return false
     }
 }

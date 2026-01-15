@@ -8,5 +8,4 @@ struct NowPlayingAttributes: ActivityAttributes {
     }
 
     var title: String
-    var coverURL: URL?
 }

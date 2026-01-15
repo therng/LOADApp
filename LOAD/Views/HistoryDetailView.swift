@@ -9,6 +9,7 @@ struct HistoryDetailView: View {
     @State private var safariURL: URL?
     @State private var safariDetent: PresentationDetent = .medium
     @State private var sortOption: SortOption = .relevance
+    @State private var isAscending: Bool = true
     
     var body: some View {
         Group {
@@ -19,13 +20,10 @@ struct HistoryDetailView: View {
                     Label("Couldn't load results", systemImage: "exclamationmark.triangle")
                 } description: {
                     Text(message)
-                } actions: {
-                    Button("Retry") {
-                        Task { await fetch(force: true) }
-                    }
                 }
             } else if let response = searchResponse {
-                let results = sortOption.sort(response.results)
+                let results = sortOption.sort(response.results, ascending: isAscending)
+                
                 if results.isEmpty {
                     ContentUnavailableView(
                         "No Results",
@@ -53,12 +51,8 @@ struct HistoryDetailView: View {
                         }
                         .padding()
                     }
-                    .refreshable {
-                        await fetch(force: true)
-                    }
                 }
             } else {
-                // Placeholder state; shouldn't be visible for long
                 ContentUnavailableView(
                     "No Data",
                     systemImage: "questionmark",
@@ -69,94 +63,107 @@ struct HistoryDetailView: View {
         .navigationTitle(searchResponse?.query ?? "Loading…")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            Menu {
-                Picker("Sort", selection: $sortOption) {
-                    ForEach(SortOption.allCases) { option in
-                        Text(option.label).tag(option)
-                    }
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    sortMenuButtons
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14, weight: .semibold))
+                        .padding(8)
+                        .contentShape(Rectangle())
                 }
-            } label: {
-                Label("Sort", systemImage: "arrow.up.arrow.down")
             }
         }
         .task(id: searchId) {
             await fetch()
         }
-        .sheet(
-            isPresented: Binding(
-                get: { safariURL != nil },
-                set: { if !$0 { safariURL = nil } }
-            )
-        ) {
-            if let safariURL {
-                SafariView(url: safariURL)
+        .sheet(isPresented: Binding(
+            get: { safariURL != nil },
+            set: { if !$0 { safariURL = nil } }
+        )) {
+            if let url = safariURL {
+                SafariView(url: url)
                     .presentationDetents([.medium, .large], selection: $safariDetent)
                     .presentationDragIndicator(.visible)
             }
         }
     }
     
-    private func fetch(force: Bool = false) async {
-        // Prevent duplicate loads
-        let currentlyLoading = await MainActor.run { isLoading }
-        if currentlyLoading { return }
-        
-        // If we already have data and not forcing, do nothing
-        let hasData = await MainActor.run { searchResponse != nil }
-        if hasData && !force { return }
-        
-        await MainActor.run {
-            isLoading = true
-            errorMessage = nil
+    @ViewBuilder
+    private var sortMenuButtons: some View {
+        ForEach(SortOption.allCases) { option in
+            Button {
+                if sortOption == option {
+                    if option != .relevance {
+                        isAscending.toggle()
+                    }
+                } else {
+                    sortOption = option
+                    isAscending = true
+                }
+            } label: {
+                let title = option.displayName(isActive: sortOption == option, isAscending: isAscending)
+                Label(title, systemImage: option.systemIcon)
+            }
         }
+    }
+    
+    @MainActor
+    private func fetch(force: Bool = false) async {
+        guard !isLoading else { return }
+        if searchResponse != nil && !force { return }
+        
+        isLoading = true
+        errorMessage = nil
         
         do {
             let response = try await APIService.shared.fetchSearchResult(id: searchId)
-            await MainActor.run {
-                player.addHistory(from: response)
-                self.searchResponse = response
-                self.isLoading = false
-            }
+            self.searchResponse = response
         } catch is CancellationError {
-            await MainActor.run {
-                self.isLoading = false
-            }
         } catch {
-            await MainActor.run {
-                self.errorMessage = error.localizedDescription
-                self.isLoading = false
-            }
+            self.errorMessage = error.localizedDescription
         }
+        
+        isLoading = false
     }
 }
 
 private enum SortOption: String, CaseIterable, Identifiable {
-    case relevance
-    case title
-    case artist
-    case duration
+    case relevance, title, artist, duration
 
     var id: String { rawValue }
 
-    var label: String {
+    var systemIcon: String {
         switch self {
-        case .relevance: return "Relevance"
-        case .title: return "Title"
-        case .artist: return "Artist"
-        case .duration: return "Duration"
+        case .relevance: return "star"
+        case .title: return "music.note"
+        case .artist: return "music.microphone"
+        case .duration: return "clock"
         }
     }
 
-    func sort(_ tracks: [Track]) -> [Track] {
+    func displayName(isActive: Bool, isAscending: Bool) -> String {
+        let name = rawValue.capitalized
+        if !isActive || self == .relevance { return name }
+        return name + (isAscending ? " ↑" : " ↓")
+    }
+    
+    func sort(_ tracks: [Track], ascending: Bool) -> [Track] {
         switch self {
         case .relevance:
             return tracks
         case .title:
-            return tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            return tracks.sorted {
+                let res = $0.title.localizedCaseInsensitiveCompare($1.title)
+                return ascending ? res == .orderedAscending : res == .orderedDescending
+            }
         case .artist:
-            return tracks.sorted { $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending }
+            return tracks.sorted {
+                let res = $0.artist.localizedCaseInsensitiveCompare($1.artist)
+                return ascending ? res == .orderedAscending : res == .orderedDescending
+            }
         case .duration:
-            return tracks.sorted { $0.duration < $1.duration }
+            return tracks.sorted { ascending ? $0.duration < $1.duration : $0.duration > $1.duration }
         }
     }
 }

@@ -8,6 +8,54 @@ final class APIService {
     // MARK: - Endpoint
     private let endpointBase =
     "https://postauditory-unmanoeuvred-lizette.ngrok-free.dev"
+
+    // MARK: - Endpoint Builder
+    private enum Endpoint {
+        case health
+        case search(query: String)
+        case track(key: String)
+        case history
+        case historyItem(id: String)
+        case deleteAll
+        case deleteItem(id: String)
+        
+        func url(base: String) throws -> URL {
+            guard var components = URLComponents(string: base) else {
+                throw APIError.invalidURL
+            }
+            
+            switch self {
+            case .health:
+                components.path = "/health"
+                
+            case .search(let query):
+                components.path = "/search"
+                components.queryItems = [
+                    URLQueryItem(name: "track", value: query)
+                ]
+                
+            case .track(let key):
+                components.path = "/track/\(key)"
+                
+            case .history:
+                components.path = "/history"
+                
+            case .historyItem(let id):
+                components.path = "/history/\(id)"
+                
+            case .deleteAll:
+                components.path = "/delete"
+                
+            case .deleteItem(let id):
+                components.path = "/delete/\(id)"
+            }
+            
+            guard let url = components.url else {
+                throw APIError.invalidURL
+            }
+            return url
+        }
+    }
     
     private init() {}
     
@@ -57,8 +105,8 @@ final class APIService {
     
     // MARK: - Warmup
     func warmUp() async {
-        guard let url = URL(string: "\(endpointBase)/health") else { return }
         do {
+            let url = try Endpoint.health.url(base: endpointBase)
             _ = try await session.data(from: url)
         } catch {
 #if DEBUG
@@ -69,18 +117,11 @@ final class APIService {
     
     // MARK: - Search (MAIN)
     func search(query: String) async throws -> SearchResponse {
-        
         // Cancel previous search (สำคัญมาก)
         currentSearchTask?.cancel()
-        
+
         let task = Task<SearchResponse, Error> {
-            guard let encoded = query
-                .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                  let url = URL(string: "\(endpointBase)/search?track=\(encoded)")
-            else {
-                throw APIError.invalidURL
-            }
-            
+            let url = try Endpoint.search(query: query).url(base: endpointBase)
             return try await request(url: url)
         }
         
@@ -100,116 +141,44 @@ final class APIService {
 
     // MARK: - Track Lookup
     func fetchTrack(key: String) async throws -> Track {
-        guard let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "\(endpointBase)/track/\(encoded)") else {
-            throw APIError.invalidURL
-        }
+        let url = try Endpoint.track(key: key).url(base: endpointBase)
         return try await request(url: url)
     }
     
     // MARK: - History
     func fetchHistory() async throws -> [HistoryItem] {
-        guard let url = URL(
-            string: "\(endpointBase)/history"
-        ) else {
-            throw APIError.invalidURL
-        }
+        let url = try Endpoint.history.url(base: endpointBase)
         return try await request(url: url)
     }
     
     func fetchSearchResult(id: String) async throws -> SearchResponse {
-        guard let url = URL(
-            string: "\(endpointBase)/history/\(id)"
-        ) else {
-            throw APIError.invalidURL
-        }
+        let url = try Endpoint.historyItem(id: id).url(base: endpointBase)
         return try await request(url: url)
     }
     
     // MARK: - Delete History
     func deleteAllHistory() async throws -> DeleteResponse {
-        guard let url = URL(string: "\(endpointBase)/delete") else {
-            throw APIError.invalidURL
-        }
+        let url = try Endpoint.deleteAll.url(base: endpointBase)
         return try await request(url: url, method: "DELETE")
     }
 
     func deleteHistoryItem(id: String) async throws -> DeleteItemResponse {
-        guard let url = URL(string: "\(endpointBase)/delete/\(id)") else {
-            throw APIError.invalidURL
-        }
+        let url = try Endpoint.deleteItem(id: id).url(base: endpointBase)
         return try await request(url: url, method: "DELETE")
     }
     
-    // MARK: - Core Request (Generic, method)
-    private func request(url: URL, method: String) async throws {
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-#if DEBUG
-        print("🌐 \(method):", url.absoluteString)
-#endif
-        do {
-            let (_, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                throw APIError.badResponse(statusCode: -1)
-            }
-            guard (200...299).contains(http.statusCode) else {
-#if DEBUG
-                print("❌ HTTP \(http.statusCode) for \(method) \(url.absoluteString)")
-#endif
-                throw APIError.badResponse(statusCode: http.statusCode)
-            }
-        } catch is CancellationError {
-            throw APIError.cancelled
-        } catch {
-            throw APIError.network(error)
-        }
-    }
-    
-    // MARK: - Core Request (Decoding, method)
-    private func request<T: Decodable>(url: URL, method: String) async throws -> T {
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-#if DEBUG
-        print("🌐 \(method):", url.absoluteString)
-#endif
-        do {
-            let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                throw APIError.badResponse(statusCode: -1)
-            }
-            guard (200...299).contains(http.statusCode) else {
-#if DEBUG
-                if let body = String(data: data, encoding: .utf8) {
-                    print("❌ HTTP \(http.statusCode):", body)
-                }
-#endif
-                throw APIError.badResponse(statusCode: http.statusCode)
-            }
-            let decoder = JSONDecoder()
-            return try decoder.decode(T.self, from: data)
-        } catch is CancellationError {
-            throw APIError.cancelled
-        } catch let api as APIError {
-            throw api
-        } catch {
-            throw APIError.network(error)
-        }
-    }
-    
     // MARK: - Core Request
-    private func request<T: Decodable>(url: URL) async throws -> T {
+    private func request<T: Decodable>(
+        url: URL,
+        method: String = "GET"
+    ) async throws -> T {
         
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         
 #if DEBUG
-        print("🌐 GET:", url.absoluteString)
+        print("🌐 \(method):", url.absoluteString)
 #endif
         
         do {
@@ -236,11 +205,9 @@ final class APIService {
                 if let date = APIService.iso8601WithFractional.date(from: string) {
                     return date
                 }
-                
                 if let date = APIService.iso8601NoFractional.date(from: string) {
                     return date
                 }
-
                 
                 throw DecodingError.dataCorruptedError(
                     in: container,
@@ -256,6 +223,8 @@ final class APIService {
             
         } catch is CancellationError {
             throw APIError.cancelled
+        } catch let api as APIError {
+            throw api
         } catch {
             throw APIError.network(error)
         }
