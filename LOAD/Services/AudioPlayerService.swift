@@ -34,6 +34,7 @@ final class AudioPlayerService: ObservableObject {
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var liveActivityStorage: Any?
+    private var isTopUpInProgress = false
     
     @available(iOS 17.0, *)
     private var nowPlayingActivity: Activity<NowPlayingAttributes>? {
@@ -159,6 +160,8 @@ final class AudioPlayerService: ObservableObject {
         errorMessage = nil
         stopContinueMode()
         startPlayback(with: track)
+        // ✨ Populate continueQueue immediately after starting playback
+        topUpContinueQueue()
     }
     
     func playNow(key: String) {
@@ -345,25 +348,16 @@ final class AudioPlayerService: ObservableObject {
             return
         }
         
-        // Continue mode
-        await ensureContinueQueue(target: reason == .autoplay ? 5 : max(1, continueQueue.count))
-        
+        // Continue mode - simplified to use popContinueQueue() directly
         if let nextContinue = popContinueQueue() {
             playNow(track: nextContinue)
-            if reason == .autoplay {
-                await topUpContinueQueue(target: 5)
-            } else {
-                await topUpContinueQueue(target: max(1, continueQueue.count))
-            }
             return
         }
         
         if repeatAll {
             continueQueue.removeAll()
-            await ensureContinueQueue(target: reason == .autoplay ? 5 : 1)
             if let loopTrack = popContinueQueue() {
                 playNow(track: loopTrack)
-                await topUpContinueQueue(target: 5)
                 return
             }
         }
@@ -406,12 +400,21 @@ final class AudioPlayerService: ObservableObject {
             existingKeys.insert(currentID)
         }
         userQueue.forEach { existingKeys.insert($0.id) }
+    // MARK: - Continue Queue - New Implementation
+    
+    /// Populate the continue queue with new API flow:
+    /// 1️⃣ GET /history → get all search IDs
+    /// 2️⃣ Random select one search_id
+    /// 3️⃣ GET /history/{search_id} → get results: [Track]
+    /// 4️⃣ Random select one Track from results
+    private func topUpContinueQueue() {
+        guard !isTopUpInProgress else { return }
+        guard userQueue.isEmpty else { return }  // Only topup when userQueue is empty
+        guard continueQueue.count < 5 else { return }  // Don't exceed 5 tracks
         
-        let maxAttempts = max(10, historySearchIDs.count * 3)
-        var attempts = 0
-        while queue.count < target, attempts < maxAttempts {
-            attempts += 1
-            guard let searchID = historySearchIDs.randomElement() else { break }
+        isTopUpInProgress = true
+        
+        Task {
             do {
                 let response = try await APIService.shared.fetchSearchResult(id: searchID)
                 guard let historyKey = response.results.randomElement()?.key else { continue }
@@ -419,11 +422,48 @@ final class AudioPlayerService: ObservableObject {
                 if existingKeys.contains(track.id) { continue }
                 queue.append(track)
                 existingKeys.insert(track.id)
+                // Step 1️⃣: GET /history to get all search IDs
+                let histories = try await APIService.shared.fetchHistory()
+                
+                // Step 2️⃣: Select a random search_id
+                guard let randomHistory = histories.randomElement() else {
+                    isTopUpInProgress = false
+                    return
+                }
+                
+                let searchId = randomHistory.id ?? randomHistory.search_id
+                
+                // Step 3️⃣: GET /history/{search_id} to get tracks for this search
+                let response = try await APIService.shared.fetchSearchResult(id: searchId)
+                
+                // Step 4️⃣: Select a random track from results and add to queue
+                if let randomTrack = response.results.randomElement() {
+                    // Check for duplicates
+                    var existingKeys = Set(continueQueue.map(\.id))
+                    if let currentID = currentTrack?.id {
+                        existingKeys.insert(currentID)
+                    }
+                    userQueue.forEach { existingKeys.insert($0.id) }
+                    
+                    if !existingKeys.contains(randomTrack.id) {
+                        continueQueue.append(randomTrack)
+                    }
+                }
+                
+                isTopUpInProgress = false
+                
+                // Recursively call to fill up to 5 tracks
+                if continueQueue.count < 5 {
+                    topUpContinueQueue()
+                }
+                
             } catch {
-                continue
+#if DEBUG
+                print("❌ TopUp continueQueue failed:", error.localizedDescription)
+#endif
+                isTopUpInProgress = false
             }
         }
-        continueQueue = queue
     }
     
     private func stopContinueMode() {
