@@ -129,6 +129,9 @@ final class AudioPlayerService: ObservableObject {
     
     func removeFromUserQueue(at offsets: IndexSet) {
         userQueue.remove(atOffsets: offsets)
+        if userQueue.isEmpty && currentTrack == nil {
+            topUpContinueQueue()
+        }
     }
     
     func moveUserQueue(from source: IndexSet, to destination: Int) {
@@ -137,6 +140,9 @@ final class AudioPlayerService: ObservableObject {
     
     func clearUserQueue() {
         userQueue.removeAll()
+        if userQueue.isEmpty && currentTrack == nil {
+            topUpContinueQueue()
+        }
     }
     
     func shuffleUserQueue() {
@@ -355,8 +361,17 @@ final class AudioPlayerService: ObservableObject {
         }
         
         if repeatAll {
-            continueQueue.removeAll()
-            if let loopTrack = popContinueQueue() {
+            // Re-populate continueQueue if repeatAll is active and queues are exhausted
+            if userQueue.isEmpty && continueQueue.isEmpty {
+                topUpContinueQueue() // This will top up continueQueue if userQueue is empty
+                // After topping up, attempt to play from continueQueue
+                if let loopTrack = popContinueQueue() {
+                    playNow(track: loopTrack)
+                    return
+                }
+            }
+            // If continueQueue was not empty, just pop from it
+            else if let loopTrack = popContinueQueue() {
                 playNow(track: loopTrack)
                 return
             }
@@ -400,69 +415,58 @@ final class AudioPlayerService: ObservableObject {
             existingKeys.insert(currentID)
         }
         userQueue.forEach { existingKeys.insert($0.id) }
-    // MARK: - Continue Queue - New Implementation
-    
-    /// Populate the continue queue with new API flow:
-    /// 1️⃣ GET /history → get all search IDs
-    /// 2️⃣ Random select one search_id
-    /// 3️⃣ GET /history/{search_id} → get results: [Track]
-    /// 4️⃣ Random select one Track from results
     private func topUpContinueQueue() {
         guard !isTopUpInProgress else { return }
-        guard userQueue.isEmpty else { return }  // Only topup when userQueue is empty
-        guard continueQueue.count < 5 else { return }  // Don't exceed 5 tracks
-        
+        guard userQueue.isEmpty else { return }
+        guard continueQueue.count < 5 else { return }
+
         isTopUpInProgress = true
-        
+
         Task {
             do {
-                let response = try await APIService.shared.fetchSearchResult(id: searchID)
-                guard let historyKey = response.results.randomElement()?.key else { continue }
-                let track = try await APIService.shared.fetchTrack(key: historyKey)
-                if existingKeys.contains(track.id) { continue }
-                queue.append(track)
-                existingKeys.insert(track.id)
-                // Step 1️⃣: GET /history to get all search IDs
-                let histories = try await APIService.shared.fetchHistory()
-                
-                // Step 2️⃣: Select a random search_id
-                guard let randomHistory = histories.randomElement() else {
-                    isTopUpInProgress = false
-                    return
+                var localContinueQueue = continueQueue
+                var existingKeys = Set(userQueue.map(\.id))
+                if let currentID = currentTrack?.id {
+                    existingKeys.insert(currentID)
                 }
-                
-                let searchId = randomHistory.id ?? randomHistory.search_id
-                
-                // Step 3️⃣: GET /history/{search_id} to get tracks for this search
-                let response = try await APIService.shared.fetchSearchResult(id: searchId)
-                
-                // Step 4️⃣: Select a random track from results and add to queue
-                if let randomTrack = response.results.randomElement() {
-                    // Check for duplicates
-                    var existingKeys = Set(continueQueue.map(\.id))
-                    if let currentID = currentTrack?.id {
-                        existingKeys.insert(currentID)
+                localContinueQueue.forEach { existingKeys.insert($0.id) }
+
+                while localContinueQueue.count < 5 {
+                    // Step 1️⃣: GET /history to get all search IDs
+                    let histories = try await APIService.shared.fetchHistory()
+
+                    // Step 2️⃣: Select a random search_id
+                    guard let randomHistory = histories.randomElement(),
+                          let searchId = randomHistory.search_id else {
+                        break // No history to draw from
                     }
-                    userQueue.forEach { existingKeys.insert($0.id) }
-                    
-                    if !existingKeys.contains(randomTrack.id) {
-                        continueQueue.append(randomTrack)
+
+                    // Step 3️⃣: GET /history/{search_id} to get tracks for this search
+                    let response = try await APIService.shared.fetchSearchResult(id: searchId)
+
+                    // Step 4️⃣: Select a random track from results and add to queue
+                    if let randomTrack = response.results.randomElement(),
+                       !existingKeys.contains(randomTrack.id) {
+                        localContinueQueue.append(randomTrack)
+                        existingKeys.insert(randomTrack.id)
+                    } else {
+                        // If we couldn't find a unique track from this search_id,
+                        // try another history item. To avoid infinite loops on empty histories,
+                        // we need a mechanism to break if all history has been exhausted
+                        // or if no unique tracks can be found.
+                        // For simplicity, let's just break for now, a more robust solution
+                        // might involve keeping track of tried search_ids.
+                        break
                     }
                 }
-                
-                isTopUpInProgress = false
-                
-                // Recursively call to fill up to 5 tracks
-                if continueQueue.count < 5 {
-                    topUpContinueQueue()
-                }
-                
+                self.continueQueue = localContinueQueue
+
             } catch {
 #if DEBUG
                 print("❌ TopUp continueQueue failed:", error.localizedDescription)
 #endif
-                isTopUpInProgress = false
             }
+            isTopUpInProgress = false
         }
     }
     
