@@ -383,6 +383,23 @@ final class AudioPlayerService: ObservableObject {
         return continueQueue.removeFirst()
     }
     
+    private func ensureContinueQueue(target: Int) async {
+        let cappedTarget = min(target, 5)
+        let needed = cappedTarget - continueQueue.count
+        if needed <= 0 { return }
+        await topUpContinueQueue(target: cappedTarget)
+    }
+    
+    private func topUpContinueQueue(target: Int) async {
+        guard userQueue.isEmpty else { return }
+        guard continueQueue.count < 5 else { return }
+
+        var queue = continueQueue
+        var existingKeys = Set(queue.map(\.id))
+        if let currentID = currentTrack?.id {
+            existingKeys.insert(currentID)
+        }
+        userQueue.forEach { existingKeys.insert($0.id) }
     // MARK: - Continue Queue - New Implementation
     
     /// Populate the continue queue with new API flow:
@@ -399,6 +416,12 @@ final class AudioPlayerService: ObservableObject {
         
         Task {
             do {
+                let response = try await APIService.shared.fetchSearchResult(id: searchID)
+                guard let historyKey = response.results.randomElement()?.key else { continue }
+                let track = try await APIService.shared.fetchTrack(key: historyKey)
+                if existingKeys.contains(track.id) { continue }
+                queue.append(track)
+                existingKeys.insert(track.id)
                 // Step 1️⃣: GET /history to get all search IDs
                 let histories = try await APIService.shared.fetchHistory()
                 
