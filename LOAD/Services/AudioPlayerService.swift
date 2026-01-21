@@ -337,7 +337,14 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
                 if let dur = player.currentItem?.duration.seconds, dur.isFinite, dur > 0 {
                     self.duration = dur
                 }
+                self.continueQueue = localContinueQueue
+
+            } catch {
+#if DEBUG
+                print("❌ TopUp continueQueue failed:", error.localizedDescription)
+#endif
             }
+            isTopUpInProgress = false
         }
 
         player.play()
