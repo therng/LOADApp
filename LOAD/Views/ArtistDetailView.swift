@@ -1,14 +1,6 @@
 import SwiftUI
 
-private struct ScaledButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
-    }
-}
 
-// A new view for each album cell in the grid.
 private struct AlbumGridItemView: View {
     let album: iTunesSearchResult
     let onCopy: () -> Void
@@ -59,7 +51,6 @@ private struct AlbumGridItemView: View {
                 self.isPressing = pressing
             }
         }
-        .buttonStyle(ScaledButtonStyle())
     }
 }
 

@@ -3,7 +3,7 @@ import Combine
 import Foundation
 import SwiftUI
 import UIKit
-import CoreImage
+import MediaPlayer
 
 @MainActor
 final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegate {
@@ -57,6 +57,7 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
     override init() {
         super.init()
         configureAudioSession()
+        setupRemoteTransportControls()
     }
 
     // MARK: - Queue API
@@ -147,6 +148,7 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
     func pause() {
         pauseBackend()
         isPlaying = false
+        updateNowPlayingInfo() // Update state for lock screen
     }
 
     func stop() {
@@ -159,6 +161,10 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
         didFinishPlayback = false
         dominantColorTask?.cancel()
         dominantColorTask = nil
+        artworkImage = nil
+        dominantColor = nil
+        
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
     // MARK: - Seeking
@@ -183,6 +189,7 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
             player.seek(to: time)
             if !isSeeking { currentTime = target }
         }
+        updateNowPlayingInfo() // Sync seeking changes
     }
 
     // MARK: - Core Playback Flow
@@ -190,7 +197,9 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
     private func playTrack(at index: Int) {
         guard index >= 0, index < queue.count else { return }
 
+        // Fully reset previous playback state
         stopBackend()
+        
         didFinishPlayback = false
         currentIndex = index
         currentTrack = queue[index]
@@ -199,6 +208,9 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
         isLoading = true
         artworkImage = nil
         dominantColor = nil
+        
+        // Initial info update (clears previous track info)
+        updateNowPlayingInfo()
 
         let track = queue[index]
 
@@ -229,6 +241,10 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
                 self.artworkImage = image
                 
                 self.dominantColorTask?.cancel()
+                
+                // Update lock screen with new artwork
+                self.updateNowPlayingInfo()
+                
                 guard let image else { return }
 
                 self.dominantColorTask = Task.detached(priority: .utility) {
@@ -279,10 +295,13 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
             duration = player.duration
             isPlaying = true
             isLoading = false
-
+            
+            updateNowPlayingInfo()
             startProgressTimer()
         } catch {
+            print("❌ AVAudioPlayer init failed: \(error.localizedDescription)")
             isLoading = false
+            isPlaying = false
         }
     }
 
@@ -298,6 +317,8 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
             Task { @MainActor in
                 guard let self = self, let player = self.audioPlayer, !self.isSeeking else { return }
                 self.currentTime = player.currentTime
+                // Optionally update MPNowPlayingInfoCenter periodically if drift occurs,
+                // but usually setting it on play/pause/seek is sufficient.
             }
         }
     }
@@ -333,23 +354,21 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
                 let seconds = CMTimeGetSeconds(time)
                 guard seconds.isFinite else { return }
                 self.currentTime = seconds
-                
+
                 if let dur = player.currentItem?.duration.seconds, dur.isFinite, dur > 0 {
                     self.duration = dur
+                    // Update duration once known for streams
+                     if abs(self.duration - dur) > 0.1 {
+                        self.updateNowPlayingInfo()
+                     }
                 }
-                self.continueQueue = localContinueQueue
-
-            } catch {
-#if DEBUG
-                print("❌ TopUp continueQueue failed:", error.localizedDescription)
-#endif
             }
-            isTopUpInProgress = false
         }
 
         player.play()
         isPlaying = true
         isLoading = false
+        updateNowPlayingInfo()
     }
 
     // MARK: - Backend Control
@@ -363,84 +382,104 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
         audioPlayer?.play()
         avPlayer?.play()
         isPlaying = true
+        updateNowPlayingInfo() // Sync playback state
     }
 
     private func stopBackend() {
+        // Stop audio backends
         audioPlayer?.stop()
         audioPlayer = nil
-        stopProgressTimer()
-
+        
+        avPlayer?.pause()
         if let observer = timeObserver {
             avPlayer?.removeTimeObserver(observer)
             timeObserver = nil
         }
+        avPlayer = nil
+        
+        // Stop observers/timers
+        stopProgressTimer()
+        
         if let observer = endObserver {
             NotificationCenter.default.removeObserver(observer)
             endObserver = nil
         }
-
-        avPlayer?.pause()
-        avPlayer = nil
+        
+        // Reset playback states
+        isLoading = false
+        // Note: We don't reset `isPlaying` here because `stopBackend` is called 
+        // during track transitions where we might technically still want to be "playing" logically.
+        // Explicit stops should set isPlaying = false.
     }
 
     // MARK: - Audio Session
 
     private func configureAudioSession() {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-        try? AVAudioSession.sharedInstance().setActive(true)
-    }
-}
-
-private extension UIImage {
-    func makeThreadSafe() -> UIImage? {
-        defer { UIGraphicsEndImageContext() }
-        UIGraphicsBeginImageContextWithOptions(size, false, 0)
-        draw(in: CGRect(origin: .zero, size: size))
-        return UIGraphicsGetImageFromCurrentImageContext()
-    }
-}
-private extension Color {
-    /// Returns a version of the color toned to work better as a background.
-    /// Bright colors are darkened slightly; dark colors are lightened slightly.
-    nonisolated func tonedForBackground() -> Color {
-        // Convert to RGBA via UIColor
-        let ui = UIColor(self)
-        var r: CGFloat = 0
-        var g: CGFloat = 0
-        var b: CGFloat = 0
-        var a: CGFloat = 0
-        ui.getRed(&r, green: &g, blue: &b, alpha: &a)
-
-        // Perceived luminance (sRGB)
-        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-        // Blend factor determines how much to move toward target (black/white)
-        let blend: CGFloat = 0.18
-
-        let tonedRed: CGFloat
-        let tonedGreen: CGFloat
-        let tonedBlue: CGFloat
-
-        if luminance > 0.7 {
-            // Too bright: blend slightly toward black
-            tonedRed   = r * (1 - blend)
-            tonedGreen = g * (1 - blend)
-            tonedBlue  = b * (1 - blend)
-        } else if luminance < 0.3 {
-            // Too dark: blend slightly toward white
-            tonedRed   = r + (1 - r) * blend
-            tonedGreen = g + (1 - g) * blend
-            tonedBlue  = b + (1 - b) * blend
-        } else {
-            // Mid-range: small desaturation for subtlety
-            let gray = (r + g + b) / 3
-            let desat: CGFloat = 0.12
-            tonedRed   = r + (gray - r) * desat
-            tonedGreen = g + (gray - g) * desat
-            tonedBlue  = b + (gray - b) * desat
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("❌ Failed to set audio session category: \(error)")
         }
-
-        let tonedColor = UIColor(red: tonedRed, green: tonedGreen, blue: tonedBlue, alpha: a)
-        return Color(tonedColor)
+    }
+    
+    // MARK: - Remote Transport Controls (Lock Screen)
+    
+    private func setupRemoteTransportControls() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.play() }
+            return .success
+        }
+        
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.pause() }
+            return .success
+        }
+        
+        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.playNext() }
+            return .success
+        }
+        
+        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.playPrevious() }
+            return .success
+        }
+        
+        commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self = self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            Task { @MainActor in
+                self.seek(to: event.positionTime)
+            }
+            return .success
+        }
+    }
+    
+    private func updateNowPlayingInfo() {
+        guard let track = currentTrack else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        
+        var nowPlayingInfo = [String: Any]()
+        
+        nowPlayingInfo[MPMediaItemPropertyTitle] = track.title
+        nowPlayingInfo[MPMediaItemPropertyArtist] = track.artist
+        
+        if let image = artworkImage {
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = createArtwork(from: image)
+        }
+        
+        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+        nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = duration
+        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+    }
+    
+    nonisolated private func createArtwork(from image: UIImage) -> MPMediaItemArtwork {
+        return MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 }

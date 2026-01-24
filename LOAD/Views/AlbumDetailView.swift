@@ -3,6 +3,7 @@ import SwiftUI
 struct AlbumDetailView: View {
     let album: iTunesSearchResult
     
+    @EnvironmentObject var player: AudioPlayerService
     @State private var tracks: [iTunesSearchResult] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -22,15 +23,27 @@ struct AlbumDetailView: View {
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical)
 
-                    ForEach(tracks) { track in
-                        HStack {
-                            Text("\(track.trackNumber ?? 0).")
-                                .foregroundStyle(.secondary)
-                                .frame(minWidth: 25, alignment: .trailing)
-                            Text(track.trackName ?? "Unknown Track")
-                            Spacer()
-                            Text(track.trackDuration ?? "--:--")
-                                .foregroundStyle(.secondary)
+                    ForEach(tracks) { item in
+                        HStack(spacing: 4) {
+                            if item.previewUrl != nil {
+                                Image(systemName: "play.circle")
+                                    .foregroundStyle(.blue)
+                                    .frame(width: 25)
+                                    .onTapGesture {
+                                        playPreview(startingAt: item)
+                                    }
+                            } else {
+                                Text("\(item.trackNumber ?? 0).")
+                                    .foregroundStyle(.secondary)
+                                    .font(.caption)
+                                    .frame(width: 25, alignment: .center)
+                            }
+                            
+                            TrackRow(track: makeTrack(from: item), isDimmed: item.previewUrl == nil)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            playPreview(startingAt: item)
                         }
                     }
                 }
@@ -86,5 +99,30 @@ struct AlbumDetailView: View {
             self.errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+    
+    private func makeTrack(from item: iTunesSearchResult) -> Track {
+        Track(
+            artist: item.artistName,
+            title: item.trackName ?? "Unknown",
+            duration: (item.trackTimeMillis ?? 0) / 1000,
+            key: String(item.trackId ?? 0),
+            artworkURL: item.highResArtworkURL,
+            releaseDate: APIService.yearFormatter.string(from: item.releaseDate),
+            customStreamURL: item.previewUrl
+        )
+    }
+    
+    private func playPreview(startingAt track: iTunesSearchResult) {
+        guard track.previewUrl != nil else { return }
+        
+        let convertedTracks = tracks.compactMap { item -> Track? in
+            guard item.previewUrl != nil else { return nil }
+            return makeTrack(from: item)
+        }
+        
+        if let index = convertedTracks.firstIndex(where: { $0.key == String(track.trackId ?? 0) }) {
+            player.setQueue(convertedTracks, startAt: index)
+        }
     }
 }

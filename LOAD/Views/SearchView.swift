@@ -8,7 +8,7 @@ struct SearchView: View {
     
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var presentedSearchId: String?
+    @State private var presentedResponse: SearchResponse?
     @FocusState var isSearchFocused: Bool
     
     var body: some View {
@@ -16,12 +16,16 @@ struct SearchView: View {
             VStack(spacing: 4) {
                 if isLoading {
                     loadingView
+
                 } else if let error = errorMessage {
                     errorView(error)
+             
                 } else if !isLoading {
                     emptyView
+                   
                 }
             }
+     
             .searchable(
                 text: $searchText,
                 isPresented: $isSearchPresented,
@@ -33,12 +37,12 @@ struct SearchView: View {
             }
             .navigationDestination(
                 isPresented: Binding(
-                    get: { presentedSearchId != nil },
-                    set: { if !$0 { presentedSearchId = nil } }
+                    get: { presentedResponse != nil },
+                    set: { if !$0 { presentedResponse = nil } }
                 )
             ) {
-                if let searchId = presentedSearchId {
-                    HistoryDetailView(searchId: searchId)
+                if let response = presentedResponse {
+                    HistoryDetailView(searchId: response.search_id, preloadedResponse: response)
                 }
             }
             .onChange(of: isSearchPresented) { _, presented in
@@ -63,8 +67,10 @@ struct SearchView: View {
         
         Task {
             do {
-                let response = try await APIService.shared.search(query: q)
-                self.presentedSearchId = response.searchId
+                let (searchId, tracks) = try await APIService.shared.search(query: q)
+                let response = SearchResponse(search_id: searchId, results: tracks, query: q, count: tracks.count)
+                
+                self.presentedResponse = response
                 Haptics.impact(.medium)
                 self.isLoading = false
             } catch {

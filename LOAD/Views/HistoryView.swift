@@ -94,9 +94,11 @@ struct HistoryView: View {
                         Image(systemName: "trash")
                     }
                 }
+                .background(.clear)
             }
         }
         .listStyle(.plain)
+   
     }
 
     private var emptyView: some View {

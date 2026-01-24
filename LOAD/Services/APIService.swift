@@ -1,7 +1,5 @@
 import Foundation
 
-
-
 @MainActor
 final class APIService {
     
@@ -245,7 +243,7 @@ final class APIService {
     
     private let artworkCache = NSCache<NSURL, NSData>()
     
-    private static let yearFormatter: DateFormatter = {
+    public static let yearFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy"
         return formatter
@@ -432,6 +430,7 @@ final class APIService {
             return searchResponse.results
                 .filter { $0.wrapperType == "track" }
                 .sorted { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
+            
         } catch {
             throw APIError.decodingError
         }
