@@ -59,9 +59,7 @@ struct ArtistDetailView: View {
     var body: some View {
         ZStack {
             contentView
-                .navigationTitle(artistName)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbar(.hidden, for: .navigationBar)
                 .task {
                     await loadArtistAlbums()
                 }
@@ -97,6 +95,8 @@ struct ArtistDetailView: View {
     private func loadArtistAlbums() async {
         do {
             isLoading = true
+            // Pass raw artist name to avoid double encoding.
+            // APIService handles query parameters securely.
             let searchResults = try await APIService.shared.searchForArtistAlbums(artistName)
             self.albums = searchResults
             self.errorMessage = nil

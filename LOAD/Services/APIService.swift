@@ -305,7 +305,7 @@ final class APIService {
         var components = URLComponents(string: "https://itunes.apple.com/search")!
         components.queryItems = [
             URLQueryItem(name: "term", value: query),
-            URLQueryItem(name: "entity", value: "song"),
+            URLQueryItem(name: "entity", value: "album"),
             URLQueryItem(name: "media", value: "music")
             
         ]
@@ -317,7 +317,7 @@ final class APIService {
         }
         
         #if DEBUG
-        print("🌐 [iTunes Request]: \(url.absoluteString)")
+        print("🌐 [Artwork Request]: \(url.absoluteString)")
         #endif
         
         do {
@@ -327,18 +327,8 @@ final class APIService {
             
             // Filter results based on the specified criteria.
             let filteredResults = response.results.filter { result in
-                // 1. Exclude compilations by checking for `collectionArtistName`.
-                //    If this field exists, it's often "Various Artists".
-                if result.collectionArtistName != nil {
-                    return false
-                }
-                
-                // 2. Prioritize singles or EPs where the collection name contains the track name.
-                //    This helps avoid picking tracks from unrelated albums.
-                guard let trackName = result.trackName else {
-                    return false
-                }
-                if !result.collectionName.localizedCaseInsensitiveContains(trackName) {
+         
+                if !result.collectionName.localizedCaseInsensitiveContains(parsedTitle.title) {
                     return false
                 }
                 
@@ -374,7 +364,7 @@ final class APIService {
             URLQueryItem(name: "term", value: artistName),
             URLQueryItem(name: "media", value: "music"),
             URLQueryItem(name: "entity", value: "album"),
-            URLQueryItem(name: "attribute", value: "artistTerm"),
+            URLQueryItem(name: "attribute", value: "artistTerm"), // Corrected from "attibute"
             URLQueryItem(name: "limit", value: "200")
         ]
         
@@ -384,7 +374,7 @@ final class APIService {
         }
         
         #if DEBUG
-        print("🌐 [iTunes Artist Album Request]: \(url.absoluteString)")
+        print("🌐 [Albums Request]: \(url.absoluteString)")
         #endif
         
         let (data, response) = try await URLSession.shared.data(from: url)
@@ -397,13 +387,8 @@ final class APIService {
             let searchResponse = try JSONDecoder.customDateDecoder.decode(iTunesSearchResponse.self, from: data)
             
             let filteredResults = searchResponse.results.filter { result in
-                if result.collectionArtistName != nil { return false }
-                
-                if let trackName = result.trackName, !result.collectionName.localizedCaseInsensitiveContains(trackName) {
-                    return false
-                }
-                
-                return true
+                // Only include albums with less than 10 tracks
+                return (result.trackCount ?? 0) <= 10
             }
             
             // Sort by release date, newest first
@@ -427,7 +412,7 @@ final class APIService {
         }
         
         #if DEBUG
-        print("🌐 [iTunes Album Tracks Request]: \(url.absoluteString)")
+        print("🌐 [Tracks Request]: \(url.absoluteString)")
         #endif
         
         let (data, response) = try await URLSession.shared.data(from: url)

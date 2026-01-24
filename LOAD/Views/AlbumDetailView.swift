@@ -106,9 +106,8 @@ struct AlbumDetailView: View {
                     image
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .blur(radius: 60)
-                        .overlay(Material.ultraThin)
-                        .overlay(Color.black.opacity(0.2))
+                        .blur(radius: 40)
+                        .overlay(Color.black.opacity(0.05))
                 } placeholder: {
                     Color.clear
                 }
@@ -221,8 +220,8 @@ struct AlbumDetailView: View {
     
     private var metadataString: String {
         var parts: [String] = []
-        if !album.primaryGenreName.isEmpty {
-            parts.append(album.primaryGenreName)
+        if let genre = album.primaryGenreName, !genre.isEmpty {
+            parts.append(genre)
         }
         let year = String(Calendar.current.component(.year, from: album.releaseDate))
         parts.append(year)

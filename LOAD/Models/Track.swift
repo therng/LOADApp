@@ -82,10 +82,12 @@ struct iTunesSearchResult: Codable, Identifiable {
     let collectionName: String
     let artworkUrl100: URL?
     let releaseDate: Date
-    let primaryGenreName: String
+    // Changed to Optional to prevent decoding errors
+    let primaryGenreName: String?
     let copyright: String?
     
     // Fields specific to tracks
+    let trackCount: Int?
     let trackId: Int?
     let trackName: String?
     let trackNumber: Int?
