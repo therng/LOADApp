@@ -58,9 +58,8 @@ struct LocalDocumentBrowser: View {
                       
                         }
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 3)
                 }
-                .buttonStyle(.plain)
             }
             .onDelete(perform: deleteFile)
         }
@@ -86,7 +85,7 @@ struct LocalDocumentBrowser: View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(.systemGray6))
-                .frame(width: 50, height: 50)
+                .frame(width: 35, height: 35)
             Image(systemName: "music.note")
                 .foregroundColor(.accentColor)
                 .font(.system(size: 22))
@@ -102,6 +101,8 @@ struct LocalDocumentBrowser: View {
     private func handleFileTap(_ file: LocalFile) {
         let audioExtensions = ["mp3", "m4a", "wav", "flac", "aac"]
         guard audioExtensions.contains(file.url.pathExtension.lowercased()) else { return }
+        
+        Haptics.impact()
         
         let track = Track(
             artist: "Local File",

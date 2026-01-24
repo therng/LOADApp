@@ -2,6 +2,8 @@ import SwiftUI
 
 struct HistoryDetailView: View {
     let searchId: String
+    let preloadedResponse: SearchResponse?
+    
     @EnvironmentObject var player: AudioPlayerService
     @State private var searchResponse: SearchResponse?
     @State private var isLoading = false
@@ -12,16 +14,24 @@ struct HistoryDetailView: View {
     @State private var isAscending: Bool = true
     @State private var artistToShow: ArtistDisplayItem?
     
+    init(searchId: String, preloadedResponse: SearchResponse? = nil) {
+        self.searchId = searchId
+        self.preloadedResponse = preloadedResponse
+    }
+    
     var body: some View {
-        Group {
+        ScrollView {
             if isLoading {
                 ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, 100)
             } else if let message = errorMessage {
                 ContentUnavailableView {
                     Label("Couldn't load results", systemImage: "exclamationmark.triangle")
                 } description: {
                     Text(message)
                 }
+                .padding(.top, 50)
             } else if let response = searchResponse {
                 let results = sortOption.sort(response.results, ascending: isAscending)
                 
@@ -31,30 +41,29 @@ struct HistoryDetailView: View {
                         systemImage: "magnifyingglass",
                         description: Text("This search didn't return any tracks.")
                     )
+                    .padding(.top, 50)
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(results) { track in
-                                TrackRow(track: track)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        Haptics.impact()
-                                        if let index = results.firstIndex(where: { $0.id == track.id }) {
-                                            player.setQueue(results, startAt: index)
-                                        }
+                    LazyVStack(spacing: 12) {
+                        ForEach(results) { track in
+                            TrackRow(track: track)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    Haptics.impact()
+                                    if let index = results.firstIndex(where: { $0.id == track.id }) {
+                                        player.setQueue(results, startAt: index)
                                     }
-                                    .contextMenu {
-                                        TrackActionMenuItems(track: track, onSave: { url in
-                                            safariDetent = .medium
-                                            safariURLItem = SafariURLItem(url: url)
-                                        }, onGoToArtist: { artistName in
-                                            self.artistToShow = ArtistDisplayItem(name: artistName)
-                                        }, player: player)
-                                    }
-                            }
+                                }
+                                .contextMenu {
+                                    TrackActionMenuItems(track: track, onSave: { url in
+                                        safariDetent = .medium
+                                        safariURLItem = SafariURLItem(url: url)
+                                    }, onGoToArtist: { artistName in
+                                        self.artistToShow = ArtistDisplayItem(name: artistName)
+                                    }, player: player)
+                                }
                         }
-                        .padding()
                     }
+                    .padding()
                 }
             } else {
                 ContentUnavailableView(
@@ -62,14 +71,17 @@ struct HistoryDetailView: View {
                     systemImage: "questionmark",
                     description: Text("There is nothing to show right now.")
                 )
+                .padding(.top, 50)
             }
         }
+   
         .navigationTitle(searchResponse?.query ?? "Loading…")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     sortMenuButtons
+                        .background(.clear)
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 20, weight: .semibold))
@@ -78,14 +90,18 @@ struct HistoryDetailView: View {
             }
         }
         .task(id: searchId) {
-            await fetch()
+            if let preloaded = preloadedResponse {
+                self.searchResponse = preloaded
+            } else {
+                await fetch()
+            }
         }
         .sheet(item: $safariURLItem) { item in
             SafariView(url: item.url)
                 .presentationDetents([.medium, .large], selection: $safariDetent)
                 .presentationDragIndicator(.visible)
         }
-        .sheet(item: $artistToShow) { artistItem in
+        .navigationDestination(item: $artistToShow) { artistItem in
             ArtistDetailView(artistName: artistItem.name)
         }
     }

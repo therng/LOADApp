@@ -1,7 +1,5 @@
 import Foundation
 
-
-
 @MainActor
 final class APIService {
     
@@ -245,7 +243,7 @@ final class APIService {
     
     private let artworkCache = NSCache<NSURL, NSData>()
     
-    private static let yearFormatter: DateFormatter = {
+    public static let yearFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy"
         return formatter
@@ -397,8 +395,19 @@ final class APIService {
         
         do {
             let searchResponse = try JSONDecoder.customDateDecoder.decode(iTunesSearchResponse.self, from: data)
+            
+            let filteredResults = searchResponse.results.filter { result in
+                if result.collectionArtistName != nil { return false }
+                
+                if let trackName = result.trackName, !result.collectionName.localizedCaseInsensitiveContains(trackName) {
+                    return false
+                }
+                
+                return true
+            }
+            
             // Sort by release date, newest first
-            return searchResponse.results.sorted { $0.releaseDate > $1.releaseDate }
+            return filteredResults.sorted { $0.releaseDate > $1.releaseDate }
         } catch {
             throw APIError.decodingError
         }
@@ -409,7 +418,8 @@ final class APIService {
         var components = URLComponents(string: "https://itunes.apple.com/lookup")!
         components.queryItems = [
             URLQueryItem(name: "id", value: String(collectionId)),
-            URLQueryItem(name: "entity", value: "song")
+            URLQueryItem(name: "entity", value: "song"),
+            URLQueryItem(name: "media", value: "music")
         ]
         
         guard let url = components.url else {
@@ -432,6 +442,7 @@ final class APIService {
             return searchResponse.results
                 .filter { $0.wrapperType == "track" }
                 .sorted { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
+            
         } catch {
             throw APIError.decodingError
         }

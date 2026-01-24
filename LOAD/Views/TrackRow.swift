@@ -34,9 +34,6 @@ struct TrackRow: View {
                 }
                 Spacer()
                 HStack(spacing: 10) {
-                    Text(track.releaseDate ?? "")
-                        .font(.system(size: 10, weight: .light, design: .rounded))
-                        .foregroundColor(.secondary)
                     Text(track.durationText)
                         .font(.system(size: 13, weight: .medium, design: .default))
                         .foregroundColor(isPlaying ? .blue: nonCurrentPrimary)

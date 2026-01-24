@@ -3,7 +3,7 @@ import SwiftUI
 struct TrackActionMenuItems: View {
     let track: Track
     let onSave: (URL) -> Void
-    let onGoToArtist: (String) -> Void
+    let onGoToArtist: ((String) -> Void)?
     let player: AudioPlayerService
 
     private var shareableText: String { "\(track.artist) - \(track.title)" }
@@ -22,12 +22,14 @@ struct TrackActionMenuItems: View {
         
         Divider()
 
-        Button("Go to Artist", systemImage: "music.mic") {
-            Haptics.impact()
-            onGoToArtist(track.artist)
+        if let onGoToArtist {
+            Button("Go to Artist", systemImage: "music.mic") {
+                Haptics.impact()
+                onGoToArtist(track.artist)
+            }
         }
 
-        Button("Copy Name", systemImage: "doc.on.doc") {
+        Button("Copy", systemImage: "doc.on.doc") {
             Haptics.selection()
             let textToCopy = shareableText
             #if canImport(UIKit)
@@ -43,12 +45,12 @@ struct TrackActionMenuItems: View {
             subject: Text(track.title),
             message: Text(shareableText)
         ) {
-            Label("Share Track", systemImage: "square.and.arrow.up")
+            Label("Share", systemImage: "square.and.arrow.up")
         }
         
         Divider()
 
-        Button("Save to Files", systemImage: "arrow.down.circle") {
+        Button("Save", systemImage: "arrow.down.circle") {
             Haptics.impact(.medium)
             onSave(track.download)
         }

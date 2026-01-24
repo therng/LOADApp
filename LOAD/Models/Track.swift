@@ -7,11 +7,11 @@ struct Track: Identifiable, Codable, Hashable {
     let key: String
 
     
-    // ฟิลด์สำหรับเก็บ Path ไฟล์ในเครื่อง (เพิ่มเข้าไปที่นี่ที่เดียว)
+    // Field for storing local file path (added here only)
     var localURL: URL?
     var artworkURL: URL?
     var releaseDate: String?
-    
+    var customStreamURL: URL?
 
     // MARK: - Helpers
     private static let downloadBaseURL = URL(string: "https://nplay.idmp3s.xyz")!
@@ -24,10 +24,10 @@ struct Track: Identifiable, Codable, Hashable {
     }
 
     var stream: URL {
-        Self.streamBaseURL.appendingPathComponent(key)
+        customStreamURL ?? Self.streamBaseURL.appendingPathComponent(key)
     }
 
-    // รวมศูนย์การเลือก URL สำหรับเล่นไว้ที่นี่
+    // Centralized URL selection logic for playback
     var playURL: URL {
         if let local = localURL {
             return local
@@ -82,12 +82,15 @@ struct iTunesSearchResult: Codable, Identifiable {
     let collectionName: String
     let artworkUrl100: URL?
     let releaseDate: Date
+    let primaryGenreName: String
+    let copyright: String?
     
     // Fields specific to tracks
     let trackId: Int?
     let trackName: String?
     let trackNumber: Int?
     let trackTimeMillis: Int?
+    let previewUrl: URL?
 
     // Optional field for compilations
     let collectionArtistName: String?

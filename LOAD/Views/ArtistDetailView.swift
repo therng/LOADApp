@@ -1,20 +1,9 @@
 import SwiftUI
 
-private struct ScaledButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
-    }
-}
 
-// A new view for each album cell in the grid.
 private struct AlbumGridItemView: View {
     let album: iTunesSearchResult
-    let onCopy: () -> Void
-
-    @State private var isPressing = false
-
+    
     private static let yearFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy"
@@ -37,12 +26,12 @@ private struct AlbumGridItemView: View {
                                 .font(.largeTitle)
                         }
                 }
-                .aspectRatio(1, contentMode: .fit)
+                .aspectRatio(1, contentMode: .fill)
                 .cornerRadius(8)
                 .shadow(radius: 3)
                 
                 Text(album.collectionName)
-                    .font(.system(size: 11, weight: .regular, design:.rounded))
+                    .font(.system(size: 13, weight: .regular, design:.default))
                     .lineLimit(1)
                     .multilineTextAlignment(.center)
                 
@@ -50,16 +39,7 @@ private struct AlbumGridItemView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-            .scaleEffect(isPressing ? 1.15 : 1.0)
-            .animation(.spring (response: 0.1, dampingFraction: 3), value: isPressing)
-            .onLongPressGesture {
-                onCopy()
-                isPressing = false
-            } onPressingChanged: { pressing in
-                self.isPressing = pressing
-            }
         }
-        .buttonStyle(ScaledButtonStyle())
     }
 }
 
@@ -70,11 +50,10 @@ struct ArtistDetailView: View {
     @State private var albums: [iTunesSearchResult] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
-    @State private var showCopiedBanner = false
     
     // Grid layout configuration
     private let columns: [GridItem] = [
-        GridItem(.adaptive(minimum: 100))
+        GridItem(.adaptive(minimum: 150))
     ]
 
     var body: some View {
@@ -82,13 +61,10 @@ struct ArtistDetailView: View {
             contentView
                 .navigationTitle(artistName)
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.hidden, for: .navigationBar)
                 .task {
                     await loadArtistAlbums()
                 }
-            
-            if showCopiedBanner {
-                copiedBannerView
-            }
         }
     }
     
@@ -109,62 +85,13 @@ struct ArtistDetailView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 25) {
                 ForEach(albums) { album in
-                    AlbumGridItemView(album: album) {
-                        handleCopyAction(for: album)
-                    }
+                    AlbumGridItemView(album: album)
                 }
             }
             .padding()
+            .padding(.top, 60)
         }
-    }
-    
-    private var copiedBannerView: some View {
-        VStack {
-            HStack(spacing:2){
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-                Text("Copied")
-            }
-            .font(.system(size: 14, weight: .semibold, design:.rounded))
-            .frame(maxHeight:20)
-            .padding(3)
-            .background(.thinMaterial)
-            .clipShape(.capsule)
-            .shadow(radius: 5)
-            .onTapGesture {
-                withAnimation {
-                    showCopiedBanner = false
-                }
-            }
-            
-            Spacer()
-        }
-        .transition(.move(edge: .top).combined(with: .opacity))
-    }
-    
-    private func handleCopyAction(for album: iTunesSearchResult) {
-        // Give haptic feedback
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
-        
-        // Combine artist and album name for copying
-        let textToCopy = "\(album.artistName) - \(album.collectionName)"
-        
-        // Set the string on the general pasteboard
-        UIPasteboard.general.string = textToCopy
-        
-        // Trigger the banner animation
-        withAnimation {
-            showCopiedBanner = true
-        }
-        
-        // Schedule the banner to disappear after 2 seconds
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            withAnimation {
-                showCopiedBanner = false
-            }
-        }
+        .ignoresSafeArea()
     }
     
     private func loadArtistAlbums() async {
@@ -185,4 +112,5 @@ struct ArtistDetailView: View {
     NavigationStack {
         ArtistDetailView(artistName: "Marlo")
     }
+    .environmentObject(AudioPlayerService.shared)
 }
