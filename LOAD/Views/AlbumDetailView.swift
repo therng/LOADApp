@@ -2,7 +2,7 @@ import SwiftUI
 
 struct AlbumDetailView: View {
     let album: iTunesSearchResult
-
+    
     @EnvironmentObject var player: AudioPlayerService
     @State private var tracks: [iTunesSearchResult] = []
     @State private var isLoading = true
@@ -34,10 +34,11 @@ struct AlbumDetailView: View {
                     .background(.ultraThinMaterial)
                     .clipShape(Capsule())
                     .shadow(radius: 5)
-                    .padding(.top, 20)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.bottom, 50)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
+            .navigationTitle(album.collectionName)
             .navigationBarTitleDisplayMode(.inline)
             .task {
                 await loadTracks()
@@ -205,7 +206,7 @@ struct AlbumDetailView: View {
             
             if let copyright = album.copyright {
                 Text(copyright)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
                     .padding(.top, 6)

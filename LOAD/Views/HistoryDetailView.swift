@@ -103,6 +103,7 @@ struct HistoryDetailView: View {
         }
         .navigationDestination(item: $artistToShow) { artistItem in
             ArtistDetailView(artistName: artistItem.name)
+                .padding(10)
         }
     }
     
