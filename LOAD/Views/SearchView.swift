@@ -10,7 +10,8 @@ struct SearchView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var presentedResponse: SearchResponse?
-    @FocusState var isSearchFocused: Bool
+    
+    // Removed unused FocusState that wasn't bound to the search field
 
     var body: some View {
         NavigationStack {
@@ -34,7 +35,6 @@ struct SearchView: View {
                 
             )
             .onSubmit(of: .search) {
-                isSearchFocused = false
                 performSearch()
             }
             .navigationDestination(
@@ -47,9 +47,6 @@ struct SearchView: View {
                     HistoryDetailView(searchId: response.search_id, preloadedResponse: response)
                 }
             }
-            .onChange(of: isSearchPresented) { _, presented in
-                isSearchFocused = presented
-            }
             // Trigger search if searchText is updated from outside (e.g. HistoryView)
             .onChange(of: searchText) { _, newValue in
                 if !isSearchPresented && !newValue.isEmpty {
@@ -60,24 +57,36 @@ struct SearchView: View {
     }
     
     private func performSearch() {
+        // Dismiss keyboard manually since .searchable focus binding isn't available/reliable here
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
         
         isLoading = true
         errorMessage = nil
-        isSearchPresented = false
+        presentedResponse = nil // Reset to ensure navigation triggers fresh
         
         Task {
             do {
                 let (searchId, tracks) = try await APIService.shared.search(query: q)
                 let response = SearchResponse(search_id: searchId, results: tracks, query: q, count: tracks.count)
                 
-                self.presentedResponse = response
-                Haptics.impact(.medium)
-                self.isLoading = false
+                await MainActor.run {
+                    self.presentedResponse = response
+                    Haptics.impact(.medium)
+                    self.isLoading = false
+                }
             } catch {
-                self.errorMessage = error.localizedDescription
-                self.isLoading = false
+                // Ignore cancellation errors
+                if let apiError = error as? APIService.APIError, case .cancelled = apiError {
+                    return
+                }
+                
+                await MainActor.run {
+                    self.errorMessage = error.localizedDescription
+                    self.isLoading = false
+                }
             }
         }
     }

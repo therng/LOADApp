@@ -141,15 +141,13 @@ class LocalDocumentManager: ObservableObject {
     private let fileMonitor = FileMonitor()
     
     init() {
-        // Setup the monitor callback
-        fileMonitor.onDidChange = { [weak self] in
+        loadDocuments()
+        // Pass the callback directly to start to avoid data races and ensure Sendability
+        fileMonitor.start { [weak self] in
             Task { @MainActor [weak self] in
                 self?.loadDocuments()
             }
         }
-        
-        loadDocuments()
-        fileMonitor.start()
     }
     
     func loadDocuments() {
@@ -214,13 +212,11 @@ class LocalDocumentManager: ObservableObject {
 // MARK: - File Helper
 /// A separate helper class to manage the low-level DispatchSource.
 /// This avoids actor isolation issues in `deinit`.
-private class FileMonitor {
+private class FileMonitor: @unchecked Sendable {
     private var monitorSession: MonitorSession?
     private let queue = DispatchQueue(label: "com.loadapp.filemonitor", attributes: .concurrent)
     
-    var onDidChange: (() -> Void)?
-    
-    func start() {
+    func start(onDidChange: @escaping @Sendable () -> Void) {
         guard monitorSession == nil else { return }
         guard let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         
@@ -229,8 +225,8 @@ private class FileMonitor {
         
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: .write, queue: queue)
         
-        source.setEventHandler { [weak self] in
-            self?.onDidChange?()
+        source.setEventHandler { 
+            onDidChange()
         }
         
         source.setCancelHandler {
@@ -251,7 +247,7 @@ private class FileMonitor {
 }
 
 /// Helper class to manage DispatchSource lifetime and cancellation
-private final class MonitorSession {
+private final class MonitorSession: @unchecked Sendable {
     private let source: DispatchSourceFileSystemObject
     
     init(source: DispatchSourceFileSystemObject) {

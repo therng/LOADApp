@@ -7,7 +7,7 @@ struct ContentView: View {
     // Shared state between Search and History
     @State private var searchText: String = ""
     @State private var isSearchPresented: Bool = false
-
+    @Namespace private var animation
     
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -26,22 +26,27 @@ struct ContentView: View {
             }
         }
         .tabViewSearchActivation(.searchTabSelection)
-             .tabViewStyle(.sidebarAdaptable)
-             .searchToolbarBehavior(.minimize)
-             .tabBarMinimizeBehavior(.onScrollDown)
-             .tabViewBottomAccessory(isEnabled: player.currentTrack != nil) {
-                 MiniPlayerView(isFullPlayerPresented: $isFullPlayerPresented)
-             }
-             .sensoryFeedback(.selection, trigger: selectedTab)
-             .sheet(isPresented: $isFullPlayerPresented) {
-                     FullPlayerView()
-                     .presentationDragIndicator(.hidden)
-                     .ignoresSafeArea(edges: .all)
-             }
-         }
-     }
-
-     #Preview {
+        .tabViewStyle(.sidebarAdaptable)
+        .searchToolbarBehavior(.minimize)
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabViewBottomAccessory(isEnabled: player.currentTrack != nil) {
+            MiniPlayerView(isFullPlayerPresented: $isFullPlayerPresented)
+                .matchedTransitionSource(id: "MINI", in: animation)
+                .onTapGesture {
+                    isFullPlayerPresented.toggle()
+                }
+        }
+        .sensoryFeedback(.selection, trigger: selectedTab)
+        .fullScreenCover(isPresented: $isFullPlayerPresented) {
+            FullPlayerView()
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    VStack(spacing: 10) {}
+                        .navigationTransition(.zoom(sourceID: "MINI", in: animation))
+                }
+        }
+    }
+}
+#Preview {
          ContentView()
              .environmentObject(AudioPlayerService.shared)
      }
