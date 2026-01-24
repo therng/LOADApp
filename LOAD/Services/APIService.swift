@@ -388,7 +388,7 @@ final class APIService {
             
             let filteredResults = searchResponse.results.filter { result in
                 // Only include albums with less than 10 tracks
-                return (result.trackCount ?? 0) <= 10
+                return (result.trackCount ?? 0) <= 6
             }
             
             // Sort by release date, newest first
