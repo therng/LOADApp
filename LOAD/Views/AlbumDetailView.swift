@@ -47,15 +47,15 @@ struct AlbumDetailView: View {
     
     @ViewBuilder
     private var mainContent: some View {
-        if isLoading {
+        if isLoading && tracks.isEmpty {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if !tracks.isEmpty {
+            trackListView
         } else if let message = errorMessage {
             ContentUnavailableView("Could Not Load", systemImage: "exclamationmark.triangle", description: Text(message))
-        } else if tracks.isEmpty {
-            ContentUnavailableView("No Tracks Found", systemImage: "music.mic", description: Text("No tracks were found for this album."))
         } else {
-            trackListView
+            ContentUnavailableView("No Tracks Found", systemImage: "music.mic", description: Text("No tracks were found for this album."))
         }
     }
     
@@ -79,6 +79,9 @@ struct AlbumDetailView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .refreshable {
+            await loadTracks()
+        }
     }
     
     private func trackRowView(for item: iTunesSearchResult) -> some View {

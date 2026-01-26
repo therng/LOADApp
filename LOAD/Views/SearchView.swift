@@ -1,117 +1,117 @@
 import SwiftUI
-import UIKit
 
 struct SearchView: View {
     @EnvironmentObject var player: AudioPlayerService
     
+    // Changed from @State to @Binding to accept state from ContentView
     @Binding var searchText: String
     @Binding var isSearchPresented: Bool
     
+    @State private var searchResults: [Track] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var presentedResponse: SearchResponse?
-    @FocusState var isSearchFocused: Bool
-
+    
+    // Task for handling debounce
+    @State private var searchTask: Task<Void, Never>?
+    
     var body: some View {
         NavigationStack {
-            VStack(spacing: 4) {
-                if isLoading {
-                    loadingView
-
+            Group {
+                if searchText.isEmpty {
+                    // Show History when not searching
+                    HistoryView(onSelectQuery: { query in
+                        searchText = query
+                        // Trigger search immediately upon selecting history
+                        performSearch(query: query)
+                    })
+                } else if isLoading {
+                    ProgressView("Searching...")
                 } else if let error = errorMessage {
-                    errorView(error)
-             
-                } else if !isLoading {
-                    emptyView
-                   
+                    ContentUnavailableView("Search Failed", systemImage: "exclamationmark.triangle", description: Text(error))
+                } else if searchResults.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                } else {
+                    // Results List
+                    List {
+                        ForEach(searchResults) { track in
+                            Button {
+                                playTrack(track)
+                            } label: {
+                                TrackRow(track: track)
+                            }
+                            .listRowSeparator(.hidden)
+                            .swipeActions(edge: .trailing) {
+                                Button {
+                                    player.addToQueue(track)
+                                    Haptics.notify(.success)
+                                } label: {
+                                    Label("Queue", systemImage: "text.badge.plus")
+                                }
+                                .tint(.blue)
+                            }
+                        }
+                    }
+                    .listStyle(.plain)
                 }
             }
-            
-            .searchable(
-                text: $searchText,
-                isPresented: $isSearchPresented,
-                prompt: Text(searchText.isEmpty ? "Search" : searchText)
-                
-            )
+            .navigationTitle("Search")
+            // Updated to use isPresented binding
+            .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .navigationBarDrawer(displayMode: .always), prompt: "Songs, Artists, URLs")
             .onSubmit(of: .search) {
-                isSearchFocused = false
-                performSearch()
+                performSearch(query: searchText)
             }
-            .navigationDestination(
-                isPresented: Binding(
-                    get: { presentedResponse != nil },
-                    set: { if !$0 { presentedResponse = nil } }
-                )
-            ) {
-                if let response = presentedResponse {
-                    HistoryDetailView(searchId: response.search_id, preloadedResponse: response)
+            // Trigger search on appear if text exists but no results (e.g. coming from History tab)
+            .task {
+                if !searchText.isEmpty && searchResults.isEmpty {
+                    performSearch(query: searchText)
                 }
             }
-            .onChange(of: isSearchPresented) { _, presented in
-                isSearchFocused = presented
-            }
-            // Trigger search if searchText is updated from outside (e.g. HistoryView)
             .onChange(of: searchText) { _, newValue in
-                if !isSearchPresented && !newValue.isEmpty {
-                    performSearch()
+                searchTask?.cancel()
+                if newValue.isEmpty {
+                    searchResults = []
+                    errorMessage = nil
+                    isLoading = false
+                } else {
+                    searchTask = Task {
+                        // Debounce: Wait 0.5s before searching
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        if !Task.isCancelled {
+                            performSearch(query: newValue)
+                        }
+                    }
                 }
             }
         }
     }
     
-    private func performSearch() {
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return }
+    private func performSearch(query: String) {
+        guard !query.isEmpty else { return }
         
         isLoading = true
         errorMessage = nil
-        isSearchPresented = false
         
         Task {
             do {
-                let (searchId, tracks) = try await APIService.shared.search(query: q)
-                let response = SearchResponse(search_id: searchId, results: tracks, query: q, count: tracks.count)
-                
-                self.presentedResponse = response
-                Haptics.impact(.medium)
-                self.isLoading = false
+                let (_, tracks) = try await APIService.shared.search(query: query)
+                await MainActor.run {
+                    self.searchResults = tracks
+                    self.isLoading = false
+                }
             } catch {
-                self.errorMessage = error.localizedDescription
-                self.isLoading = false
+                await MainActor.run {
+                    self.errorMessage = error.localizedDescription
+                    self.isLoading = false
+                }
             }
         }
     }
     
-    private var loadingView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "waveform.path.ecg.magnifyingglass")
-                .font(.system(size: 60))
-                .foregroundStyle(.primary)
-                .symbolEffect(.pulse)
+    private func playTrack(_ track: Track) {
+        Haptics.selection()
+        // If clicking a track in search results, play it and queue the rest of the results
+        if let index = searchResults.firstIndex(where: { $0.id == track.id }) {
+            player.setQueue(searchResults, startAt: index)
         }
-        .frame(maxHeight: .infinity)
-    }
-    
-    private func errorView(_ message: String) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 48))
-                .foregroundStyle(.red)
-            Text(message)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding()
-        .frame(maxHeight: .infinity)
-    }
-    
-    private var emptyView: some View {
-            VStack(spacing: 12) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.primary)
-            }
-            .frame(maxHeight: .infinity)
-        
     }
 }

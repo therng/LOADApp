@@ -29,7 +29,6 @@ private struct AlbumGridItemView: View {
                 .aspectRatio(1, contentMode: .fill)
                 .cornerRadius(8)
                 .shadow(radius: 3)
-                
                 Text(album.collectionName)
                     .font(.system(size: 13, weight: .regular, design:.default))
                     .lineLimit(1)
@@ -59,23 +58,33 @@ struct ArtistDetailView: View {
     var body: some View {
         ZStack {
             contentView
-                .toolbar(.hidden, for: .navigationBar)
+                // Removed: .toolbar(.hidden, for: .navigationBar)
                 .task {
                     await loadArtistAlbums()
                 }
+        }
+        // Added toolbar and navigation title
+        .navigationTitle(artistName)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                ShareLink(item: artistName, subject: Text("Check out \(artistName) on iTunes!")) {
+                    Label("Share Artist", systemImage: "square.and.arrow.up")
+                }
+            }
         }
     }
     
     @ViewBuilder
     private var contentView: some View {
-        if isLoading {
+        // Only show full screen loader if we have no data
+        if isLoading && albums.isEmpty {
             ProgressView()
+        } else if !albums.isEmpty {
+            albumGridView
         } else if let message = errorMessage {
             ContentUnavailableView("Could Not Load", systemImage: "exclamationmark.triangle", description: Text(message))
-        } else if albums.isEmpty {
-            ContentUnavailableView("No Albums Found", systemImage: "music.mic", description: Text("There were no albums found for \(artistName) on the iTunes Store."))
         } else {
-            albumGridView
+            ContentUnavailableView("No Albums Found", systemImage: "music.mic", description: Text("There were no albums found for \(artistName) on the iTunes Store."))
         }
     }
     
@@ -87,9 +96,12 @@ struct ArtistDetailView: View {
                 }
             }
             .padding()
-            .padding(.top, 60)
+            // Removed: .padding(.top, 60)
         }
-        .ignoresSafeArea()
+        // Removed: .ignoresSafeArea()
+        .refreshable {
+            await loadArtistAlbums()
+        }
     }
     
     private func loadArtistAlbums() async {

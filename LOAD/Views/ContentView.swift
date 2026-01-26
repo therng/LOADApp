@@ -11,17 +11,19 @@ struct ContentView: View {
     
     var body: some View {
         TabView(selection: $selectedTab) {
-            Tab("Local", systemImage: "folder", value: 0) {
-                LocalDocumentBrowser()
-            }
+     
             Tab("History", systemImage: "clock.arrow.circlepath", value: 1) {
-                HistoryView(selectedTab: $selectedTab, searchText: $searchText, isSearchPresented: $isSearchPresented)
+                // Fixed: Use closure to update state instead of passing bindings directly
+                HistoryView { query in
+                    searchText = query
+                    selectedTab = 2 // Switch to Search tab
+                    isSearchPresented = true
+                }
             }
             Tab("Search", systemImage: "magnifyingglass", value: 2, role: .search) {
                 SearchView(
                     searchText: $searchText,
                     isSearchPresented: $isSearchPresented
-                    
                 )
             }
         }

@@ -1,160 +1,86 @@
 import SwiftUI
 
 struct HistoryView: View {
+    var onSelectQuery: (String) -> Void
+    
+    @State private var historyItems: [HistoryItem] = []
+    @State private var isLoading = false
+    
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .short
         return f
     }()
     
-    @Binding var selectedTab: Int
-    @Binding var searchText: String
-    @Binding var isSearchPresented: Bool
-    @EnvironmentObject var player: AudioPlayerService
-    @State private var historyItems: [HistoryItem] = []
-    @State private var isLoading = false
-    @State private var showErrorAlert = false
-    @State private var showClearConfirmation = false
-    @State private var errorMessage: String?
-
     var body: some View {
-        NavigationStack {
-            Group {
-                if isLoading {
-                    ProgressView()
-                } else if historyItems.isEmpty {
-                    emptyView
-                } else {
-                    historyList
-                }
-            }
-            .navigationTitle("History")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    if !historyItems.isEmpty {
-                        Button(role: .destructive) {
-                            showClearConfirmation = true
+        List {
+            if !historyItems.isEmpty {
+                Section {
+                    ForEach(historyItems, id: \.search_id) { item in
+                        Button {
+                            onSelectQuery(item.query)
                         } label: {
-                            Image(systemName: "trash")
+                            HStack {
+                                Image(systemName: "clock")
+                                    .foregroundStyle(.secondary)
+                                Text(item.query)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Text(Self.relativeFormatter.localizedString(for: item.timestamp, relativeTo: Date()))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                deleteItem(item)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                         }
                     }
-                }
-            }
-            .confirmationDialog(
-                "Clear History",
-                isPresented: $showClearConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Clear All History", role: .destructive) {
-                    clearHistory()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This action cannot be undone.")
-            }
-            .task {
-                await loadHistory(force: true)
-            }
-            .alert("Error", isPresented: $showErrorAlert) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(errorMessage ?? "An unknown error occurred.")
-            }
-        }
-    }
-
-    private var historyList: some View {
-        List {
-            ForEach(historyItems, id: \.search_id) { item in
-                NavigationLink {
-                    HistoryDetailView(searchId: item.search_id)
-                } label: {
+                } header: {
                     HStack {
-                        Text(item.query)
-                            .lineLimit(1)
-                            .font(.body)
+                        Text("Recent Searches")
                         Spacer()
-                        Text(Self.relativeFormatter.localizedString(for: item.timestamp, relativeTo: Date()))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Button("Clear") {
+                            clearHistory()
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.red)
                     }
                 }
-                .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    Button {
-                        retrySearch(item)
-                    } label: {
-                        Image(systemName: "arrow.counterclockwise")
-                    }
-                    .tint(Color.accentColor)
-                }
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    Button(role: .destructive) {
-                        deleteItem(item)
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                }
-                .background(.clear)
+            } else if !isLoading {
+                ContentUnavailableView("No History", systemImage: "clock", description: Text("Your search history will appear here."))
             }
         }
-        .listStyle(.plain)
-   
-    }
-
-    private var emptyView: some View {
-        ContentUnavailableView {
-            Label("No History", systemImage: "clock.arrow.circlepath")
-        } description: {
-            Text("Your search history will appear here")
-        } actions: {
-            Button("Reload") {
-                Task { await loadHistory(force: true) }
-            }
+        .listStyle(.insetGrouped)
+        .onAppear {
+            Task { await loadHistory() }
         }
     }
-
-    private func retrySearch(_ item: HistoryItem) {
-        Haptics.impact(.medium)
-        selectedTab = 2
-        searchText = item.query
-        isSearchPresented = false
-        
-    }
-
-    private func loadHistory(force: Bool = false) async {
-        if isLoading { return }
+    
+    private func loadHistory() async {
         isLoading = true
         do {
-            let items = try await APIService.shared.fetchHistory()
-            historyItems = items
+            historyItems = try await APIService.shared.fetchHistory()
         } catch {
-            errorMessage = error.localizedDescription
-            showErrorAlert = true
+            print("Failed to load history: \(error)")
         }
         isLoading = false
     }
-
-    private func clearHistory() {
-        Task {
-            do {
-                _ = try await APIService.shared.deleteAllHistoryItems()
-                historyItems = []
-            } catch {
-                errorMessage = error.localizedDescription
-                showErrorAlert = true
-            }
-        }
-    }
-
+    
     private func deleteItem(_ item: HistoryItem) {
         Task {
-            do {
-                _ = try await APIService.shared.deleteHistoryItem(with: item.search_id)
-                historyItems.removeAll { $0.search_id == item.search_id }
-            } catch {
-                errorMessage = error.localizedDescription
-                showErrorAlert = true
-            }
+            _ = try? await APIService.shared.deleteHistoryItem(with: item.search_id)
+            await loadHistory()
+        }
+    }
+    
+    private func clearHistory() {
+        Task {
+            _ = try? await APIService.shared.deleteAllHistoryItems()
+            historyItems = []
         }
     }
 }
