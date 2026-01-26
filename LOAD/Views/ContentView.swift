@@ -7,6 +7,8 @@ struct ContentView: View {
     // Shared state between Search and History
     @State private var searchText: String = ""
     @State private var isSearchPresented: Bool = false
+    
+    @Namespace private var animation
 
     
     var body: some View {
@@ -31,13 +33,15 @@ struct ContentView: View {
              .tabViewStyle(.sidebarAdaptable)
              .searchToolbarBehavior(.minimize)
              .tabBarMinimizeBehavior(.onScrollDown)
-             .tabViewBottomAccessory(isEnabled: player.currentTrack != nil) {
+             .tabViewBottomAccessory(isEnabled: player.currentTrack != nil, accessory: {
                  MiniPlayerView(isFullPlayerPresented: $isFullPlayerPresented)
-             }
+                     .matchedTransitionSource(id: "MINIPLAYER", in: animation)
+             })
              .sensoryFeedback(.selection, trigger: selectedTab)
-             .sheet(isPresented: $isFullPlayerPresented) {
-                     FullPlayerView()
-                     .presentationDragIndicator(.hidden)
+             .fullScreenCover(isPresented: $isFullPlayerPresented) {
+                 FullPlayerView()
+                     .presentationDragIndicator(.visible)
+                     .navigationTransition(.zoom(sourceID: "MINIPLAYER", in: animation))
                      .ignoresSafeArea(edges: .all)
              }
          }
