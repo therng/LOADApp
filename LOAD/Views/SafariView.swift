@@ -10,3 +10,9 @@ struct SafariView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
+// Defining SafariURLItem here makes it accessible to other Views
+struct SafariURLItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+

@@ -49,3 +49,29 @@ extension UIColor {
         return Color(toned)
     }
 }
+
+// MARK: - View Modifiers
+
+struct TabViewBottomAccessory<Accessory: View>: ViewModifier {
+    let isEnabled: Bool
+    let accessory: Accessory
+    
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .bottom) {
+                if isEnabled {
+                    accessory
+                }
+            }
+    }
+}
+
+extension View {
+    func tabViewBottomAccessory<Accessory: View>(isEnabled: Bool = true, @ViewBuilder accessory: () -> Accessory) -> some View {
+        modifier(TabViewBottomAccessory(isEnabled: isEnabled, accessory: accessory()))
+    }
+}
+
+extension NSNotification.Name {
+    static let showBanner = NSNotification.Name("showBanner")
+}

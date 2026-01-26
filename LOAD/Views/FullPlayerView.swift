@@ -12,6 +12,12 @@ struct FullPlayerView: View {
     @State private var safariURLItem: SafariURLItem?
     @State private var safariDetent: PresentationDetent = .medium
     
+    // Beatport Search State
+    @State private var showBeatportAlert = false
+    @State private var beatportArtist = ""
+    @State private var beatportTitle = ""
+    @State private var beatportMix = ""
+    
     var body: some View {
             VStack(spacing: 0) {
                 // A handle to indicate the sheet can be dismissed
@@ -19,9 +25,6 @@ struct FullPlayerView: View {
                     .fill(Color.secondary.opacity(0.5))
                     .frame(width: 40, height: 5)
                     .padding(.vertical, 10)
-                    .onTapGesture {
-                        dismiss()
-                    }
                 
                 // Album Artwork
                 artwork
@@ -41,10 +44,21 @@ struct FullPlayerView: View {
                 HStack (alignment: .center, spacing: 40){
                     Menu {
                         if let track = player.currentTrack {
-                            TrackActionMenuItems(track: track, onSave: { url in
-                                safariDetent = .medium
-                                safariURLItem = SafariURLItem(url: url)
-                            }, onGoToArtist: nil, player: player)
+                            TrackActionMenuItems(
+                                track: track,
+                                onSave: { url in
+                                    safariDetent = .medium
+                                    safariURLItem = SafariURLItem(url: url)
+                                },
+                                onGoToArtist: nil,
+                                onSearchBeatport: { artist, title, mix in
+                                    self.beatportArtist = artist
+                                    self.beatportTitle = title
+                                    self.beatportMix = mix
+                                    self.showBeatportAlert = true
+                                },
+                                player: player
+                            )
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -79,6 +93,11 @@ struct FullPlayerView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(PlayerBackgroundView())
             .foregroundStyle(.primary)
+            // Attach the Beatport Alert here
+            .beatportSearchAlert(isPresented: $showBeatportAlert, artist: $beatportArtist, title: $beatportTitle, mix: $beatportMix)
+            .sheet(item: $safariURLItem) { item in
+                SafariView(url: item.url)
+            }
             .sheet(isPresented: $isShowingQueue) {
                 NavigationStack {
                     QueueView()
@@ -86,20 +105,21 @@ struct FullPlayerView: View {
                 }
                 .environmentObject(player)
             }
-            .sheet(item: $safariURLItem) { item in
-                SafariView(url: item.url)
-                    .presentationDetents([.medium, .large], selection: $safariDetent)
-                    .presentationDragIndicator(.visible)
-            }
+            .presentationDetents([.medium, .large], selection: $safariDetent)
+            .presentationDragIndicator(.visible)
             .onChange(of: player.currentTime) { _, newTime in
                 // Update slider position based on player's time, but only if the user isn't dragging it.
-                if !isEditingSlider {
-                    sliderValue = newTime
+                if !isEditingSlider && player.duration > 0 {
+                    sliderValue = min(newTime, player.duration)
                 }
             }
             .onAppear {
                 // Set initial slider position
-                sliderValue = player.currentTime
+                if player.duration > 0 {
+                    sliderValue = min(player.currentTime, player.duration)
+                } else {
+                    sliderValue = 0
+                }
             }
             .preferredColorScheme(.dark)
         }
@@ -160,6 +180,7 @@ struct FullPlayerView: View {
                         }
                     }
                 )
+                .disabled(player.duration <= 0) // Disable slider if duration is unknown
                 
                 HStack {
                     Text((isEditingSlider ? sliderValue : player.currentTime).formattedAsTime())
@@ -215,6 +236,7 @@ struct FullPlayerView: View {
         }
     }
 
+
 // MARK: - Time Formatter Helper
 
 private extension TimeInterval {
@@ -224,11 +246,6 @@ private extension TimeInterval {
         let seconds = Int(self) % 60
         return String(format: "%d:%02d", minutes, seconds)
     }
-}
-
-private struct SafariURLItem: Identifiable {
-    let id = UUID()
-    let url: URL
 }
 
 #Preview {

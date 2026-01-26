@@ -1,4 +1,5 @@
 import SwiftUI
+import SafariServices
 
 struct HistoryDetailView: View {
     let searchId: String
@@ -14,6 +15,12 @@ struct HistoryDetailView: View {
     @State private var isAscending: Bool = true
     @State private var artistToShow: ArtistDisplayItem?
     
+    // Beatport Search State
+    @State private var showBeatportAlert = false
+    @State private var beatportArtist = ""
+    @State private var beatportTitle = ""
+    @State private var beatportMix = ""
+    
     init(searchId: String, preloadedResponse: SearchResponse? = nil) {
         self.searchId = searchId
         self.preloadedResponse = preloadedResponse
@@ -21,18 +28,12 @@ struct HistoryDetailView: View {
     
     var body: some View {
         ScrollView {
-            if isLoading {
+            if isLoading && searchResponse == nil {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.top, 100)
-            } else if let message = errorMessage {
-                ContentUnavailableView {
-                    Label("Couldn't load results", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                }
-                .padding(.top, 50)
             } else if let response = searchResponse {
+                // If we have content, show it (even if refreshing or if there was a transient error on refresh)
                 let results = sortOption.sort(response.results, ascending: isAscending)
                 
                 if results.isEmpty {
@@ -54,17 +55,35 @@ struct HistoryDetailView: View {
                                     }
                                 }
                                 .contextMenu {
-                                    TrackActionMenuItems(track: track, onSave: { url in
-                                        safariDetent = .medium
-                                        safariURLItem = SafariURLItem(url: url)
-                                    }, onGoToArtist: { artistName in
-                                        self.artistToShow = ArtistDisplayItem(name: artistName)
-                                    }, player: player)
+                                    TrackActionMenuItems(
+                                        track: track,
+                                        onSave: { url in
+                                            safariDetent = .medium
+                                            safariURLItem = SafariURLItem(url: url)
+                                        },
+                                        onGoToArtist: { artistName in
+                                            self.artistToShow = ArtistDisplayItem(name: artistName)
+                                        },
+                                        onSearchBeatport: { artist, title, mix in
+                                            self.beatportArtist = artist
+                                            self.beatportTitle = title
+                                            self.beatportMix = mix
+                                            self.showBeatportAlert = true
+                                        },
+                                        player: player
+                                    )
                                 }
                         }
                     }
                     .padding()
                 }
+            } else if let message = errorMessage {
+                ContentUnavailableView {
+                    Label("Couldn't load results", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                }
+                .padding(.top, 50)
             } else {
                 ContentUnavailableView(
                     "No Data",
@@ -74,9 +93,12 @@ struct HistoryDetailView: View {
                 .padding(.top, 50)
             }
         }
-   
+        .refreshable {
+            await fetch(force: true)
+        }
         .navigationTitle(searchResponse?.query ?? "Loading…")
         .navigationBarTitleDisplayMode(.inline)
+        .beatportSearchAlert(isPresented: $showBeatportAlert, artist: $beatportArtist, title: $beatportTitle, mix: $beatportMix)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -103,7 +125,6 @@ struct HistoryDetailView: View {
         }
         .navigationDestination(item: $artistToShow) { artistItem in
             ArtistDetailView(artistName: artistItem.name)
-                .ignoresSafeArea(edges: .all)
         }
     }
     
@@ -157,16 +178,12 @@ private struct ArtistDisplayItem: Identifiable, Hashable {
     let name: String
     var id: String { name }
 }
-
-private struct SafariURLItem: Identifiable {
-    let id = UUID()
-    let url: URL
-}
-
 private enum SortOption: String, CaseIterable, Identifiable {
     case relevance, title, artist, duration
 
     var id: String { rawValue }
+
+// ... (Rest of SortOption enum)
 
     var systemIcon: String {
         switch self {

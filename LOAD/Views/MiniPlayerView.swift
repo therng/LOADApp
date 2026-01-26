@@ -1,108 +1,86 @@
 import SwiftUI
 
 struct MiniPlayerView: View {
-    @Environment(\.tabViewBottomAccessoryPlacement) var placement
     @EnvironmentObject var player: AudioPlayerService
     @Binding var isFullPlayerPresented: Bool
     
     var body: some View {
         VStack(spacing: 0) {
-            // Only show divider when expanded (above the tab bar)
-            if placement == .expanded {
-                Divider()
-                    .overlay(Color.primary.opacity(0.05))
+            // Tiny Progress Bar
+            if let duration = player.currentTrack?.duration, duration > 0 {
+                ProgressView(value: player.currentTime, total: Double(duration))
+                    .progressViewStyle(LinearProgressViewStyle(tint: .accentColor))
+                    .frame(height: 2)
             }
             
             HStack(spacing: 12) {
-                artworkView
-                trackInfoView
+                // Artwork
+                if let artwork = player.artworkImage {
+                    Image(uiImage: artwork)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 48, height: 48)
+                        .cornerRadius(6)
+                        .shadow(radius: 2)
+                } else {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 48, height: 48)
+                        .overlay {
+                            Image(systemName: "music.note")
+                                .foregroundStyle(.secondary)
+                        }
+                }
+                
+                // Track Info
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(player.currentTrack?.title ?? "Not Playing")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                    
+                    Text(player.currentTrack?.artist ?? "")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                
                 Spacer()
-                playbackControlsView
+                
+                // Controls
+                HStack(spacing: 16) {
+                    Button {
+                        player.togglePlayPause()
+                        Haptics.selection()
+                    } label: {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.title2)
+                            .foregroundStyle(.primary)
+                    }
+                    
+                    Button {
+                        player.playNext()
+                        Haptics.selection()
+                    } label: {
+                        Image(systemName: "forward.fill")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             .padding(.horizontal, 16)
-            .frame(height: 56)
-            .background(.clear)
-            .contentShape(Rectangle()) // Ensure the whole area is tappable
-            .onTapGesture {
-                isFullPlayerPresented = true
-            }
+            .padding(.vertical, 10)
         }
-    }
-    
-    // MARK: - Subviews
-    
-    private var artworkView: some View {
-        Group {
-            if let image = player.artworkImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                Image(systemName: "music.note")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.secondary.opacity(0.1))
-            }
+        .background(.ultraThinMaterial)
+        .overlay(Divider(), alignment: .bottom)
+        .onTapGesture {
+            isFullPlayerPresented = true
         }
-        .frame(width: 36, height: 36)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
-    }
-    
-    private var trackInfoView: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(player.currentTrack?.title ?? "Not Playing")
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-            
-            Text(player.currentTrack?.artist ?? "Select a song")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-    }
-    
-    private var playbackControlsView: some View {
-        HStack(spacing: 20) {
-            playPauseButton
-            
-            // Only show 'next' button when expanded
-            if placement == .expanded {
-                nextTrackButton
-            }
-        }
-    }
-    
-    private var playPauseButton: some View {
-        Button(action: {
-            Haptics.selection()
-            player.togglePlayPause()
-        }) {
-            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                .font(.title3)
-                .foregroundStyle(.primary)
-                .contentTransition(.symbolEffect(.replace))
-        }
-        .buttonStyle(.plain)
-    }
-    
-    private var nextTrackButton: some View {
-        Button(action: {
-            Haptics.selection()
-            player.playNext()
-        }) {
-            Image(systemName: "forward.fill")
-                .font(.title3)
-                .foregroundStyle(.primary)
-        }
-        .buttonStyle(.plain)
     }
 }
 
 #Preview {
-    ContentView()
+    MiniPlayerView(isFullPlayerPresented: .constant(false))
         .environmentObject(AudioPlayerService.shared)
+        .previewLayout(.sizeThatFits)
 }

@@ -7,21 +7,25 @@ struct ContentView: View {
     // Shared state between Search and History
     @State private var searchText: String = ""
     @State private var isSearchPresented: Bool = false
+    
+    @Namespace private var animation
 
     
     var body: some View {
         TabView(selection: $selectedTab) {
-            Tab("Local", systemImage: "folder", value: 0) {
-                LocalDocumentBrowser()
-            }
+     
             Tab("History", systemImage: "clock.arrow.circlepath", value: 1) {
-                HistoryView(selectedTab: $selectedTab, searchText: $searchText, isSearchPresented: $isSearchPresented)
+                // Fixed: Use closure to update state instead of passing bindings directly
+                HistoryView { query in
+                    searchText = query
+                    selectedTab = 2 // Switch to Search tab
+                    isSearchPresented = true
+                }
             }
             Tab("Search", systemImage: "magnifyingglass", value: 2, role: .search) {
                 SearchView(
                     searchText: $searchText,
                     isSearchPresented: $isSearchPresented
-                    
                 )
             }
         }
@@ -29,13 +33,15 @@ struct ContentView: View {
              .tabViewStyle(.sidebarAdaptable)
              .searchToolbarBehavior(.minimize)
              .tabBarMinimizeBehavior(.onScrollDown)
-             .tabViewBottomAccessory(isEnabled: player.currentTrack != nil) {
+             .tabViewBottomAccessory(isEnabled: player.currentTrack != nil, accessory: {
                  MiniPlayerView(isFullPlayerPresented: $isFullPlayerPresented)
-             }
+                     .matchedTransitionSource(id: "MINIPLAYER", in: animation)
+             })
              .sensoryFeedback(.selection, trigger: selectedTab)
-             .sheet(isPresented: $isFullPlayerPresented) {
-                     FullPlayerView()
-                     .presentationDragIndicator(.hidden)
+             .fullScreenCover(isPresented: $isFullPlayerPresented) {
+                 FullPlayerView()
+                     .presentationDragIndicator(.visible)
+                     .navigationTransition(.zoom(sourceID: "MINIPLAYER", in: animation))
                      .ignoresSafeArea(edges: .all)
              }
          }

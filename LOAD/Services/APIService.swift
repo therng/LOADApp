@@ -18,7 +18,7 @@ final class APIService {
         case historyItem(id: String)
         case deleteAll
         case deleteItem(id: String)
-        case beatportTrackID(artist: String, title: String, mix: String?)
+        case beatportID(artist: String, title: String, mix: String?)
         
         func url(base: String) throws -> URL {
             guard var components = URLComponents(string: base) else {
@@ -50,15 +50,13 @@ final class APIService {
             case .deleteItem(let id):
                 components.path = "/delete/\(id)"
                 
-            case .beatportTrackID(let artist, let title, let mix):
-                components.path = "/beatport/track-id"
-                var queryItems = [
+            case .beatportID(let artist, let title, let mix):
+                components.path = "/beatport"
+                let queryItems = [
                     URLQueryItem(name: "artist", value: artist),
-                    URLQueryItem(name: "title", value: title)
-                ]
-                if let mix = mix {
-                    queryItems.append(URLQueryItem(name: "mix", value: mix))
-                }
+                    URLQueryItem(name: "title", value: title),
+                    URLQueryItem(name: "mix", value: mix)
+                    ]
                 components.queryItems = queryItems
             }
             
@@ -113,7 +111,7 @@ final class APIService {
         let search_id: String
     }
     
-    struct BeatportTrackIDResponse: Decodable {
+    struct BeatportResponse: Decodable {
         let track_id: Int
     }
 
@@ -183,10 +181,10 @@ final class APIService {
     }
     
     // MARK: - Beatport Track ID Lookup
-    func fetchBeatportTrackID(artist: String, fullTitle: String) async throws -> Int {
-        let parsed = fullTitle.parseTitleAndMix()
-        let url = try Endpoint.beatportTrackID(artist: artist, title: parsed.title, mix: parsed.mix).url(base: endpointBase)
-        let response: BeatportTrackIDResponse = try await request(url: url)
+    func BeatportTrackID(artist: String, title: String) async throws -> Int {
+        let parsed = title.parseTitleAndMix()
+        let url = try Endpoint.beatportID(artist: artist, title: parsed.title, mix: parsed.mix).url(base: endpointBase)
+        let response: BeatportResponse = try await request(url: url)
         return response.track_id
     }
     
