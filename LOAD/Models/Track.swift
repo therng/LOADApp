@@ -63,14 +63,6 @@ struct HistoryItem: Codable {
     let query: String
 }
 
-// MARK: - Local File Model
-struct LocalFile: Identifiable {
-    let id = UUID()
-    let url: URL
-    let name: String
-    let size: String
-    let creationDate: String
-}
 struct iTunesSearchResponse: Codable {
     let results: [iTunesSearchResult]
 }
