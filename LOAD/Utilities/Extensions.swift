@@ -53,3 +53,23 @@ extension UIColor {
 extension NSNotification.Name {
     static let showBanner = NSNotification.Name("showBanner")
 }
+
+extension View {
+    @ViewBuilder
+    func zoomTransitionSourceIfAvailable(id: AnyHashable, in namespace: Namespace.ID) -> some View {
+        if #available(iOS 18.0, *) {
+            self.matchedTransitionSource(id: id, in: namespace)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func zoomTransitionDestinationIfAvailable(sourceID: AnyHashable, in namespace: Namespace.ID) -> some View {
+        if #available(iOS 18.0, *) {
+            self.navigationTransition(.zoom(sourceID: sourceID, in: namespace))
+        } else {
+            self
+        }
+    }
+}

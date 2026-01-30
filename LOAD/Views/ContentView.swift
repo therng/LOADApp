@@ -77,7 +77,7 @@ struct ContentView: View {
                         Spacer()
                         MiniPlayerView(isFullPlayerPresented: $isFullPlayerPresented)
                             .padding(.bottom, 49 + geometry.safeAreaInsets.bottom) // Lift above standard tab bar
-                            .matchedTransitionSource(id: "MINI", in: animation)
+                            .zoomTransitionSourceIfAvailable(id: "MINI", in: animation)
                     }
                 }
                 .ignoresSafeArea(edges: .bottom)
@@ -85,7 +85,7 @@ struct ContentView: View {
         }
         .fullScreenCover(isPresented: $isFullPlayerPresented) {
             FullPlayerView()
-                .navigationTransition(.zoom(sourceID: "MINI", in: animation))
+                .zoomTransitionDestinationIfAvailable(sourceID: "MINI", in: animation)
         }
     }
     

@@ -18,48 +18,46 @@ struct HistoryView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if isLoading {
-                    ProgressView()
-                } else if historyItems.isEmpty {
-                    emptyView
-                } else {
-                    historyList
-                }
+        Group {
+            if isLoading {
+                ProgressView()
+            } else if historyItems.isEmpty {
+                emptyView
+            } else {
+                historyList
             }
-            .navigationTitle("History")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    if !historyItems.isEmpty {
-                        Button(role: .destructive) {
-                            showClearConfirmation = true
-                        } label: {
-                            Image(systemName: "trash")
-                        }
+        }
+        .navigationTitle("History")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if !historyItems.isEmpty {
+                    Button(role: .destructive) {
+                        showClearConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
                     }
                 }
             }
-            .confirmationDialog(
-                "Clear History",
-                isPresented: $showClearConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Clear All History", role: .destructive) {
-                    clearHistory()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This action cannot be undone.")
+        }
+        .confirmationDialog(
+            "Clear History",
+            isPresented: $showClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear All History", role: .destructive) {
+                clearHistory()
             }
-            .task {
-                await loadHistory(force: true)
-            }
-            .alert("Error", isPresented: $showErrorAlert) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(errorMessage ?? "An unknown error occurred.")
-            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This action cannot be undone.")
+        }
+        .task {
+            await loadHistory(force: true)
+        }
+        .alert("Error", isPresented: $showErrorAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "An unknown error occurred.")
         }
     }
 
