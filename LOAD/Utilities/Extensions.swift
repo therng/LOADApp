@@ -49,3 +49,7 @@ extension UIColor {
         return Color(toned)
     }
 }
+
+extension NSNotification.Name {
+    static let showBanner = NSNotification.Name("showBanner")
+}

@@ -11,8 +11,14 @@ struct FullPlayerView: View {
     @State private var isShowingQueue: Bool = false
     @State private var safariURLItem: SafariURLItem?
     @State private var safariDetent: PresentationDetent = .medium
+    @State private var artistToShow: ArtistDisplayItem?
+    @State private var showBeatportAlert = false
+    @State private var beatportArtist: String = ""
+    @State private var beatportTitle: String = ""
+    @State private var beatportMix: String = ""
     
     var body: some View {
+        NavigationStack {
             VStack(spacing: 0) {
                 // A handle to indicate the sheet can be dismissed
                 Capsule()
@@ -44,7 +50,16 @@ struct FullPlayerView: View {
                             TrackActionMenuItems(track: track, onSave: { url in
                                 safariDetent = .medium
                                 safariURLItem = SafariURLItem(url: url)
-                            }, onGoToArtist: nil, player: player)
+                            }, onGoToArtist: { artistName in
+                                self.artistToShow = ArtistDisplayItem(name: artistName)
+                            },
+                                onSearchBeatport: { artist, title, mix in
+                                self.beatportArtist = artist
+                                self.beatportTitle = title
+                                self.beatportMix = mix
+                                self.showBeatportAlert = true
+                            },
+                            player: player)
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -91,6 +106,10 @@ struct FullPlayerView: View {
                     .presentationDetents([.medium, .large], selection: $safariDetent)
                     .presentationDragIndicator(.visible)
             }
+            .beatportSearchAlert(isPresented: $showBeatportAlert, artist: $beatportArtist, title: $beatportTitle, mix: $beatportMix)
+            .navigationDestination(item: $artistToShow) { artistItem in
+                ArtistDetailView(artistName: artistItem.name)
+            }
             .onChange(of: player.currentTime) { _, newTime in
                 // Update slider position based on player's time, but only if the user isn't dragging it.
                 if !isEditingSlider {
@@ -103,6 +122,7 @@ struct FullPlayerView: View {
             }
             .preferredColorScheme(.dark)
         }
+    }
         
     private var artwork: some View {
             Group {
@@ -229,6 +249,12 @@ private extension TimeInterval {
 private struct SafariURLItem: Identifiable {
     let id = UUID()
     let url: URL
+}
+
+// Wrapper struct to make artist name identifiable for navigation
+private struct ArtistDisplayItem: Identifiable, Hashable {
+    let name: String
+    var id: String { name }
 }
 
 #Preview {
