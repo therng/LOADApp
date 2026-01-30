@@ -2,25 +2,31 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var player: AudioPlayerService
-    @State private var isFullPlayerPresented:  Bool = false
-    // Shared state between Search and History
-    @State private var searchText: String = ""
+    @StateObject private var viewModel = SearchViewModel()
+    @State private var isFullPlayerPresented: Bool = false
+    
+    // Navigation State
     @State private var isSearchPresented: Bool = false
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-    @State private var presentedResponse: SearchResponse?
     @State private var selectedTab: Int = 1
+    
+    // Animation namespace for the zoom transition
     @Namespace private var animation
     
     var body: some View {
+        NavigationStack {
             TabView(selection: $selectedTab) {
-                Tab((errorMessage ?? "").isEmpty ? "Library" : "Error", systemImage: "book", value: 1) {
-                    HistoryView(selectedTab: $selectedTab, searchText: $searchText, isSearchPresented: $isSearchPresented)
-                }
-                Tab("Search", systemImage: "magnifyingglass", value: 0, role: .search) {
-                    if isLoading {
+                // Tab 1: Library
+                HistoryView(selectedTab: $selectedTab, searchText: $viewModel.searchText, isSearchPresented: $isSearchPresented)
+                    .tabItem {
+                        Label((viewModel.errorMessage ?? "").isEmpty ? "Library" : "Error", systemImage: "book")
+                    }
+                    .tag(1)
+                
+                // Tab 0: Search
+                Group {
+                    if viewModel.isLoading {
                         loadingView
-                    } else if let errorMessage = errorMessage {
+                    } else if let errorMessage = viewModel.errorMessage {
                         errorView(errorMessage)
                     } else {
                         ContentUnavailableView(
@@ -30,85 +36,61 @@ struct ContentView: View {
                         )
                     }
                 }
+                .tabItem {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .tag(0)
             }
-            
             .searchable(
-                text: $searchText,
+                text: $viewModel.searchText,
                 isPresented: $isSearchPresented,
-                prompt: Text(searchText.isEmpty ? "Search" : searchText)
-                
+                prompt: Text(viewModel.searchText.isEmpty ? "Search" : viewModel.searchText)
             )
             .onSubmit(of: .search) {
-                performSearch()
+                viewModel.performSearch()
             }
             .navigationDestination(
                 isPresented: Binding(
-                    get: { presentedResponse != nil },
-                    set: { if !$0 { presentedResponse = nil } }
+                    get: { viewModel.presentedResponse != nil },
+                    set: { if !$0 { viewModel.presentedResponse = nil } }
                 )
             ) {
-                if let response = presentedResponse {
+                if let response = viewModel.presentedResponse {
                     HistoryDetailView(searchId: response.search_id, preloadedResponse: response)
                 }
             }
-            // Trigger search if searchText is updated from outside (e.g. HistoryView)
-            .onChange(of: searchText) { _, newValue in
+            .onChange(of: viewModel.searchText) { _, newValue in
                 if !isSearchPresented && !newValue.isEmpty {
-                    performSearch()
+                    viewModel.performSearch()
                 }
             }
-        
-            .tabViewSearchActivation(.searchTabSelection)
-            .tabViewStyle(.sidebarAdaptable)
-            .tabBarMinimizeBehavior(.onScrollDown)
-            .tabViewBottomAccessory(isEnabled: player.currentTrack != nil) {
-                MiniPlayerView(isFullPlayerPresented: $isFullPlayerPresented)
-                    .matchedTransitionSource(id: "MINI", in: animation)
-            }
-            .sensoryFeedback(.selection, trigger: selectedTab)
-            .fullScreenCover(isPresented: $isFullPlayerPresented) {
-                FullPlayerView()
-                    .navigationTransition(.zoom(sourceID: "MINI", in: animation))
-            }
-        
         }
-
-    private func performSearch() {
-        // Dismiss keyboard manually since .searchable focus binding isn't available/reliable here
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return }
-        
-        isLoading = true
-        errorMessage = nil
-        presentedResponse = nil // Reset to ensure navigation triggers fresh
-        
-        Task {
-            do {
-                let (searchId, tracks) = try await APIService.shared.search(query: q)
-                let response = SearchResponse(search_id: searchId, results: tracks, query: q, count: tracks.count)
-                
-                await MainActor.run {
-                    self.presentedResponse = response
-                    Haptics.impact(.medium)
-                    self.isLoading = false
+        // MiniPlayer Overlay - replacing iOS 18 tabViewBottomAccessory for compatibility/stability
+        .overlay(alignment: .bottom) {
+            if player.currentTrack != nil {
+                // Adjusting safe area for the tab bar approx height if needed, 
+                // but overlay sits on top. We might need to ensure it doesn't block tab bar 
+                // or sits above it.
+                // Standard pattern: MiniPlayer floats above tab bar content.
+                GeometryReader { geometry in
+                    VStack {
+                        Spacer()
+                        MiniPlayerView(isFullPlayerPresented: $isFullPlayerPresented)
+                            .padding(.bottom, 49 + geometry.safeAreaInsets.bottom) // Lift above standard tab bar
+                            .matchedTransitionSource(id: "MINI", in: animation)
+                    }
                 }
-            } catch {
-                // Ignore cancellation errors
-                if let apiError = error as? APIService.APIError, case .cancelled = apiError {
-                    return
-                }
-                
-                await MainActor.run {
-                    self.errorMessage = error.localizedDescription
-                    self.isLoading = false
-                }
+                .ignoresSafeArea(edges: .bottom)
             }
+        }
+        .fullScreenCover(isPresented: $isFullPlayerPresented) {
+            FullPlayerView()
+                .navigationTransition(.zoom(sourceID: "MINI", in: animation))
         }
     }
-
-
+    
+    // MARK: - Subviews
+    
     private var loadingView: some View {
         VStack(spacing: 12) {
             Image(systemName: "waveform.path.ecg.magnifyingglass")
@@ -118,7 +100,7 @@ struct ContentView: View {
         }
         .frame(maxHeight: .infinity)
     }
-
+    
     private func errorView(_ message: String) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle")
@@ -134,6 +116,6 @@ struct ContentView: View {
 }
 
 #Preview {
-         ContentView()
-             .environmentObject(AudioPlayerService.shared)
-     }
+    ContentView()
+        .environmentObject(AudioPlayerService.shared)
+}

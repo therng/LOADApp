@@ -115,7 +115,7 @@ struct HistoryView: View {
 
     private func retrySearch(_ item: HistoryItem) {
         Haptics.impact(.medium)
-        selectedTab = 2
+        selectedTab = 0
         searchText = item.query
         isSearchPresented = false
         
