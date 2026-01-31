@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var player: AudioPlayerService
-    @StateObject private var searchModel = SearchModel()
+    @StateObject private var searchModel = SearchViewModel()
     
     @State private var selectedTab: Int = 0
     @State private var isFullPlayerPresented = false

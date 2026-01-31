@@ -7,7 +7,7 @@ enum SearchMode {
 }
 
 @MainActor
-class SearchModel: ObservableObject {
+class SearchViewModel: ObservableObject {
     @Published var searchText: String = ""
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
