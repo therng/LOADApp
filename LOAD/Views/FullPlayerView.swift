@@ -1,9 +1,9 @@
 import SwiftUI
+import Foundation
 
 struct FullPlayerView: View {
     @EnvironmentObject var player: AudioPlayerService
     @Environment(\.openURL) var openURL
-    @Environment(\.dismiss) var dismiss
     
     // Local state to manage the slider scrubbing
     @State private var sliderValue: Double = 0.0
@@ -25,13 +25,10 @@ struct FullPlayerView: View {
                     .fill(Color.secondary.opacity(0.5))
                     .frame(width: 40, height: 5)
                     .padding(.vertical, 10)
-                    .onTapGesture {
-                        dismiss()
-                    }
                 
                 // Album Artwork
                 artwork
-                    .padding(.vertical, 30)
+                    .padding(.vertical, 20)
                 
                 // Track Information
                 trackDetails
@@ -51,7 +48,12 @@ struct FullPlayerView: View {
                                 safariDetent = .medium
                                 safariURLItem = SafariURLItem(url: url)
                             }, onGoToArtist: { artistName in
-                                self.artistToShow = ArtistDisplayItem(name: artistName)
+                                Task {
+                                    if let artist = try? await APIService.shared.searchForArtist(artistName),
+                                       let artistId = artist.artistId {
+                                        self.artistToShow = ArtistDisplayItem(id: artistId, name: artist.artistName)
+                                    }
+                                }
                             },
                                 onSearchBeatport: { artist, title, mix in
                                 self.beatportArtist = artist
@@ -108,7 +110,7 @@ struct FullPlayerView: View {
             }
             .beatportSearchAlert(isPresented: $showBeatportAlert, artist: $beatportArtist, title: $beatportTitle, mix: $beatportMix)
             .navigationDestination(item: $artistToShow) { artistItem in
-                ArtistDetailView(artistName: artistItem.name)
+                ArtistDetailView(artistId: artistItem.id, artistName: artistItem.name)
             }
             .onChange(of: player.currentTime) { _, newTime in
                 // Update slider position based on player's time, but only if the user isn't dragging it.
@@ -125,28 +127,17 @@ struct FullPlayerView: View {
     }
         
     private var artwork: some View {
-            Group {
-                if let artwork = player.artworkImage {
-                    Image(uiImage: artwork)
-                        .resizable()
-                        .aspectRatio(1, contentMode: .fit)
-                        .cornerRadius(12)
-                        .shadow(color: .black.opacity(0.25), radius: 10, y: 5)
-                } else {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.gray.opacity(0.2))
-                        .aspectRatio(1, contentMode: .fit)
-                        .overlay {
-                            Image(systemName: "music.note")
-                                .font(.system(size: 80))
-                                .foregroundColor(.secondary)
-                        }
-                }
-            }
-        }
+        ArtworkView(
+            image: player.artworkImage,
+            cornerRadius: 12,
+            shadowRadius: 10,
+            iconSize: 80
+        )
+        .aspectRatio(1, contentMode: .fit)
+    }
         
-        private var trackDetails: some View {
-            VStack(spacing: 8) {
+    private var trackDetails: some View {
+            VStack(spacing: 5) {
                 Text(player.currentTrack?.title ?? "Not Playing")
                     .font(.title2.bold())
                     .multilineTextAlignment(.center)
@@ -182,9 +173,9 @@ struct FullPlayerView: View {
                 )
                 
                 HStack {
-                    Text((isEditingSlider ? sliderValue : player.currentTime).formattedAsTime())
+                    Text((isEditingSlider ? sliderValue : player.currentTime).durationText())
                     Spacer()
-                    Text(player.duration.formattedAsTime())
+                    Text(player.duration.durationText())
                 }
                 .font(.caption.monospacedDigit())
                 .foregroundColor(.secondary)
@@ -192,7 +183,7 @@ struct FullPlayerView: View {
         }
         
         private var controls: some View {
-            HStack(spacing: 40) {
+            HStack(spacing: 30) {
                 Button(action: {
                     Haptics.selection()
                     player.playPrevious()
@@ -212,7 +203,7 @@ struct FullPlayerView: View {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(height: 50)
+                        .frame(height: 30)
                         .frame(maxWidth: .infinity)
                 }
                 .disabled(player.currentTrack == nil)
@@ -235,16 +226,7 @@ struct FullPlayerView: View {
         }
     }
 
-// MARK: - Time Formatter Helper
-
-private extension TimeInterval {
-    func formattedAsTime() -> String {
-        guard self >= 0, self.isFinite else { return "0:00" }
-        let minutes = Int(self) / 60
-        let seconds = Int(self) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-}
+// MARK: - Helper Structs
 
 private struct SafariURLItem: Identifiable {
     let id = UUID()
@@ -253,28 +235,23 @@ private struct SafariURLItem: Identifiable {
 
 // Wrapper struct to make artist name identifiable for navigation
 private struct ArtistDisplayItem: Identifiable, Hashable {
+    let id: Int
     let name: String
-    var id: String { name }
 }
 
-#Preview {
-    let player: AudioPlayerService = {
-        let service = AudioPlayerService()
-        let track = Track(
-            artist: "craig connelly",
-            title: "Other side of the world",
-            duration: 320,
-            key: "preview-track",
-            releaseDate: "2023"
-        )
-        // By using `setQueue`, the service's `currentTrack` will be updated,
-        // allowing the preview to display the track's metadata.
-        // Full playback state is not available due to service limitations.
-        service.setQueue([track])
-        return service
-    }()
+// MARK: - TimeInterval Extension
+extension TimeInterval {
+    func durationText() -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .positional
+        formatter.zeroFormattingBehavior = .pad
+        if self >= 3600 {
+            formatter.allowedUnits = [.hour, .minute, .second]
+        } else {
+            formatter.allowedUnits = [.minute, .second]
+        }
 
-    return FullPlayerView()
-        .environmentObject(player)
+        return formatter.string(from: self) ?? "0:00"
+    }
 }
 

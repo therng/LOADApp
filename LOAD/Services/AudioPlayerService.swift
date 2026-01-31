@@ -17,7 +17,6 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
     @Published private(set) var currentIndex: Int = 0
     @Published private(set) var currentTrack: Track?
     @Published private(set) var artworkImage: UIImage?
-    @Published private(set) var dominantColor: Color?
 
     @Published private(set) var isPlaying: Bool = false
     @Published private(set) var isLoading: Bool = false
@@ -50,7 +49,6 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var progressTimer: Timer?
-    private var dominantColorTask: Task<Void, Never>?
 
     // MARK: - Init
 
@@ -159,10 +157,7 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
         currentTime = 0
         duration = 0
         didFinishPlayback = false
-        dominantColorTask?.cancel()
-        dominantColorTask = nil
         artworkImage = nil
-        dominantColor = nil
         
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
@@ -207,7 +202,6 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
         duration = 0
         isLoading = true
         artworkImage = nil
-        dominantColor = nil
         
         // Initial info update (clears previous track info)
         updateNowPlayingInfo()
@@ -226,39 +220,17 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
     private func updateArtwork(for track: Track) {
         let trackID = track.id // Capture ID to prevent race conditions
         Task {
-            let updatedTrack = await APIService.shared.fetchArtwork(for: track)
+            let (updatedTrack, image) = await APIService.shared.fetchArtworkImage(for: track)
             
             // Ensure the track we fetched artwork for is still the current one
             guard self.currentTrack?.id == trackID else { return }
+            
+            // Update track metadata (artwork URL, release date, etc.)
             self.currentTrack = updatedTrack
             
-            if let artworkData = await APIService.shared.fetchArtworkData(for: updatedTrack) {
-                let image = UIImage(data: artworkData)?.makeThreadSafe()
-                
-                // Final check before updating UI
-                guard self.currentTrack?.id == trackID else { return }
-
+            if let image = image?.makeThreadSafe() {
                 self.artworkImage = image
-                
-                self.dominantColorTask?.cancel()
-                
-                // Update lock screen with new artwork
                 self.updateNowPlayingInfo()
-                
-                guard let image else { return }
-
-                self.dominantColorTask = Task.detached(priority: .utility) {
-                    guard let avg = image.averageColor() else { return }
-                    let toned = avg.tonedForBackground()
-
-                    await MainActor.run {
-                        // Check one last time before setting color
-                        guard self.currentTrack?.id == trackID else { return }
-                        withAnimation(.easeInOut(duration: 0.8)) {
-                            self.dominantColor = toned
-                        }
-                    }
-                }
             }
         }
     }

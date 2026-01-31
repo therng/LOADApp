@@ -59,7 +59,10 @@ struct RealtimeAudioWaveView: View {
         }
         .frame(width: 24, height: 24, alignment: .center)
         .onAppear {
-                visualizer.start()
-            }
+            visualizer.start()
+        }
+        .onDisappear {
+            visualizer.stop()
+        }
     }
 }

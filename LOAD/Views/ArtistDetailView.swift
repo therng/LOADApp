@@ -4,12 +4,6 @@ import SwiftUI
 private struct AlbumGridItemView: View {
     let album: iTunesSearchResult
     
-    private static let yearFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy"
-        return formatter
-    }()
-    
     var body: some View {
         NavigationLink(destination: AlbumDetailView(album: album)) {
             VStack {
@@ -30,12 +24,12 @@ private struct AlbumGridItemView: View {
                 .cornerRadius(8)
                 .shadow(radius: 3)
                 
-                Text(album.collectionName)
+                Text(album.collectionName ?? "Untitled Album")
                     .font(.system(size: 13, weight: .regular, design:.default))
                     .lineLimit(1)
                     .multilineTextAlignment(.center)
                 
-                Text(Self.yearFormatter.string(from: album.releaseDate))
+                Text(album.releaseDate.map { APIService.yearFormatter.string(from: $0) } ?? "—")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -45,6 +39,7 @@ private struct AlbumGridItemView: View {
 
 
 struct ArtistDetailView: View {
+    let artistId: Int
     let artistName: String
     
     @State private var albums: [iTunesSearchResult] = []
@@ -59,11 +54,12 @@ struct ArtistDetailView: View {
     var body: some View {
         ZStack {
             contentView
-                .toolbar(.hidden, for: .navigationBar)
                 .task {
                     await loadArtistAlbums()
                 }
         }
+        .navigationTitle(artistName)
+        .navigationBarTitleDisplayMode(.inline)
     }
     
     @ViewBuilder
@@ -87,17 +83,13 @@ struct ArtistDetailView: View {
                 }
             }
             .padding()
-            .padding(.top, 60)
         }
-        .ignoresSafeArea()
     }
     
     private func loadArtistAlbums() async {
         do {
             isLoading = true
-            // Pass raw artist name to avoid double encoding.
-            // APIService handles query parameters securely.
-            let searchResults = try await APIService.shared.searchForArtistAlbums(artistName)
+            let searchResults = try await APIService.shared.fetchArtistAlbums(artistId: artistId)
             self.albums = searchResults
             self.errorMessage = nil
         } catch {
@@ -110,7 +102,8 @@ struct ArtistDetailView: View {
 
 #Preview {
     NavigationStack {
-        ArtistDetailView(artistName: "Marlo")
+        // Example ID for "Marlo" or similar
+        ArtistDetailView(artistId: 261899, artistName: "Marlo")
     }
     .environmentObject(AudioPlayerService.shared)
 }

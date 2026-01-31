@@ -1,48 +1,55 @@
-# Project Overview
+# LOADApp Documentation
 
-**LOADApp** is an iOS application built with **SwiftUI** designed for streaming and managing audio tracks. It connects to a custom backend for search and track metadata, while also supporting local file playback and iTunes artwork integration.
-
-## Key Features
-
-*   **Audio Streaming:** Streams audio from a remote source (`nplay.idmp3s.xyz`).
-*   **Search & Discovery:** Search for tracks via a dedicated backend API.
-*   **History:** Tracks search and playback history.
-*   **Local Playback:** Support for playing locally stored audio files.
-*   **Visualizer:** Integrated audio visualization.
-*   **Background Audio:** configured to continue playing audio when the app is in the background.
+## Target Platform
+**iOS 26+ (SwiftUI Deployment Target 26)**
+This project is built using modern SwiftUI APIs available in iOS 26 and later. Legacy support code for earlier iOS versions is not required and should not be added.
 
 ## Architecture
 
-The project follows a standard SwiftUI architecture with a separation of concerns:
+### Views (`LOAD/Views/`)
+- **ContentView**: Main entry point using the new `TabView` syntax with `Tab` struct and `.sidebarAdaptable` style.
+- **SearchView**: Unified search interface that defaults to `HistoryView` when idle and pushes to `HistoryDetailView` on search result selection.
+- **FullPlayerView / MiniPlayerView**: Audio playback controls.
+- **ArtistDetailView / AlbumDetailView**: Content browsing views.
 
-*   **Views:** Located in `LOAD/Views/`. Contains the UI components (`ContentView`, `QueueView`, `HistoryView`, etc.).
-*   **Services:** Located in `LOAD/Services/`.
-    *   `APIService`: Singleton responsible for all network interactions (Search, History, Beatport ID lookup).
-    *   `AudioPlayerService`: Manages audio playback state and logic.
-*   **Models:** Located in `LOAD/Models/`.
-    *   `Track`: Core data model representing an audio track (supports both stream and local URLs).
-*   **Entry Point:** `LOAD/LOADApp.swift` initializes the app and injects the `AudioPlayerService` into the environment.
+### Models (`LOAD/Models/`)
+- **Track**: Core audio track model.
+- **SearchResponse**: Structure for API search results.
+- **iTunesSearchResult**: Structure for iTunes API results.
 
-## Backend Integration
+### Services (`LOAD/Services/`)
+- **AudioPlayerService**: Singleton managing AVPlayer/AVAudioPlayer, queue, and playback state.
+- **APIService**: Handles networking for custom backend and iTunes Search API.
+- **Haptics**: Centralized haptic feedback engine.
 
-*   **Primary API:** The app currently points to a development endpoint: `https://postauditory-unmanoeuvred-lizette.ngrok-free.dev`.
-*   **Streaming Endpoint:** Audio is streamed from `https://nplay.idmp3s.xyz`.
-*   **Artwork:** Fetches high-resolution artwork from the iTunes Search API if not provided.
+### ViewModels (`LOAD/ViewModels/`)
+- **SearchModel**: Manages search state, results, and navigation triggers.
 
-## Development
+## Key Features & Implementations
 
-### Requirements
-*   Xcode 15+ (inferred from modern concurrency usage).
-*   iOS 16+ (inferred from structure, though specific deployment target is in project settings).
+### Navigation
+- Uses `NavigationStack` within tabs.
+- **Search**: `SearchView` uses `.searchable` with `placement: .navigationBarDrawer`.
+- **Transitions**: Uses `.navigationTransition(.zoom(...))` for player expansion (iOS 18+ API).
 
-### Building and Running
-This is a standard Xcode project.
+### Audio Playback
+- **Dual Backend**: Supports both `AVPlayer` (streaming) and `AVAudioPlayer` (local files).
+- **Background Audio**: Configured via `Info.plist` and `AVAudioSession`.
+- **Lock Screen Controls**: Integrated with `MPRemoteCommandCenter`.
 
-1.  Open `LOAD.xcodeproj`.
-2.  Select the target device or simulator.
-3.  Run (Cmd+R).
+### API & Data
+- **Custom Backend**: `https://postauditory-unmanoeuvred-lizette.ngrok-free.dev`
+- **Streaming**: `https://nplay.idmp3s.xyz`
+- **iTunes API**: Used for artwork and artist album fetching.
 
-### Code Conventions
-*   **Concurrency:** Heavy reliance on Swift's `async/await` pattern, particularly in `APIService`.
-*   **State Management:** Uses `@StateObject` for services and `@EnvironmentObject` for dependency injection into views.
-*   **Parsing:** Uses a custom `StringParsing` utility module.
+### UI Components
+- **ArtworkView**: Unified component for displaying track/album art with consistent styling.
+- **TrackRow**: Reusable row for track lists.
+- **TrackActionMenuItems**: Context menu for track actions (Queue, Beatport Search, etc.).
+
+## Development Guidelines
+
+- **SwiftUI Only**: Avoid UIKit wrappers unless absolutely necessary (e.g., `SFSafariViewController`).
+- **Concurrency**: Use `async/await` for all asynchronous operations.
+- **State Management**: Use `@StateObject` for view-owned models and `@EnvironmentObject` for shared services.
+- **Style**: Follow the "Sidebar Adaptable" pattern for `TabView` to ensure cross-device consistency (iPhone/iPad).

@@ -70,10 +70,12 @@ struct iTunesSearchResult: Codable, Identifiable {
     // Fields for both albums and tracks
     let wrapperType: String
     let artistName: String
-    let collectionId: Int
-    let collectionName: String
+    let artistId: Int?
+    let artistLinkUrl: URL?
+    let collectionId: Int?
+    let collectionName: String?
     let artworkUrl100: URL?
-    let releaseDate: Date
+    let releaseDate: Date?
     // Changed to Optional to prevent decoding errors
     let primaryGenreName: String?
     let copyright: String?
@@ -89,7 +91,7 @@ struct iTunesSearchResult: Codable, Identifiable {
     // Optional field for compilations
     let collectionArtistName: String?
     
-    var id: Int { trackId ?? collectionId }
+    var id: Int { trackId ?? collectionId ?? 0 }
     
     var highResArtworkURL: URL? {
         guard let artworkURL = artworkUrl100 else { return nil }

@@ -61,7 +61,7 @@ struct HistoryDetailView: View {
                 .presentationDragIndicator(.visible)
         }
         .navigationDestination(item: $artistToShow) { artistItem in
-            ArtistDetailView(artistName: artistItem.name)
+            ArtistDetailView(artistId: artistItem.id, artistName: artistItem.name)
         }
     }
 
@@ -120,7 +120,12 @@ struct HistoryDetailView: View {
                                     safariURLItem = SafariURLItem(url: url)
                                 },
                                 onGoToArtist: { artistName in
-                                    self.artistToShow = ArtistDisplayItem(name: artistName)
+                                    Task {
+                                        if let artist = try? await APIService.shared.searchForArtist(artistName),
+                                           let artistId = artist.artistId {
+                                            self.artistToShow = ArtistDisplayItem(id: artistId, name: artist.artistName)
+                                        }
+                                    }
                                 },
                                 onSearchBeatport: { artist, title, mix in
                                     self.beatportArtist = artist
@@ -184,8 +189,8 @@ struct HistoryDetailView: View {
 
 // Wrapper struct to make artist name identifiable for navigation
 private struct ArtistDisplayItem: Identifiable, Hashable {
+    let id: Int
     let name: String
-    var id: String { name }
 }
 
 // Wrapper struct to make URL identifiable for Safari sheet

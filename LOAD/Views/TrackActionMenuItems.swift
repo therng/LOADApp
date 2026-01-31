@@ -8,6 +8,9 @@ struct TrackActionMenuItems: View {
     let onSearchBeatport: ((_ artist: String, _ title: String, _ mix: String) -> Void)?
     let player: AudioPlayerService
 
+    @ObservedObject private var storage = ArtistStorageService.shared
+    @State private var followedArtists: [Artist] = []
+
     private var shareableText: String { "\(track.artist) - \(track.title)" }
    
     var body: some View {
@@ -31,6 +34,8 @@ struct TrackActionMenuItems: View {
                     onGoToArtist(track.artist)
                 }
             }
+
+            FollowArtistButton(track: track, followedArtists: $followedArtists)
             
             if let onSearchBeatport {
                 Button("Beatport", systemImage: "magnifyingglass.circle") {
@@ -41,6 +46,7 @@ struct TrackActionMenuItems: View {
                     onSearchBeatport(track.artist, parsed.title, parsed.mix ?? "")
                 }
             }
+
 
             Button("Copy", systemImage: "doc.on.doc") {
                 Haptics.selection()
@@ -67,6 +73,12 @@ struct TrackActionMenuItems: View {
                 Haptics.impact(.medium)
                 onSave(track.download)
             }
+        }
+        .onAppear {
+            self.followedArtists = storage.artists
+        }
+        .onReceive(storage.$artists) { artists in
+            self.followedArtists = artists
         }
     }
 }
@@ -175,16 +187,14 @@ private struct BeatportSearchSheet: View {
         
         Task {
             do {
-                let fullTitle: String
                 let trimmedMix = mixInput.trimmingCharacters(in: .whitespaces)
-                if trimmedMix.isEmpty {
-                    fullTitle = titleInput
-                } else {
-                    fullTitle = "\(titleInput) (\(trimmedMix))"
-                }
-                
-                let id = try await APIService.shared.BeatportTrackID(artist: artistInput, title: fullTitle)
-                let idString = String(id)
+                // Pass parameters directly; APIService handles them without re-parsing if mix is provided.
+                let result = try await APIService.shared.beatportTrackID(
+                    artist: artistInput,
+                    title: titleInput,
+                    mix: trimmedMix
+                )
+                let idString = String(result)
                 
                 await MainActor.run {
                     #if canImport(UIKit)
@@ -194,7 +204,6 @@ private struct BeatportSearchSheet: View {
                     NSPasteboard.general.setString(idString, forType: .string)
                     #endif
                     
-                    NotificationCenter.default.post(name: .showBanner, object: "\(idString) copied")
                     Haptics.notify(.success)
                     dismiss()
                 }
@@ -205,6 +214,70 @@ private struct BeatportSearchSheet: View {
                     isLoading = false
                 }
             }
+        }
+    }
+}
+// MARK: - Reusable Follow Artist Button
+
+private struct FollowArtistButton: View {
+    let track: Track
+    @Binding var followedArtists: [Artist]
+    @ObservedObject private var storage = ArtistStorageService.shared
+
+    private func parseArtists(from artistString: String) -> [String] {
+        let separators = [" , ",", & "," feat. "," vs. "," Feat. "," Vs. "," x "]
+        var artists = [artistString]
+        
+        for separator in separators {
+            artists = artists.flatMap { $0.components(separatedBy: separator) }
+        }
+        
+        return artists.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    }
+
+    var body: some View {
+        let artists = parseArtists(from: track.artist)
+        let onToggle: (String) -> Void = { artistName in
+            Task {
+                await storage.toggleFollow(artistName: artistName)
+            }
+        }
+        
+        if artists.count > 1 {
+            Menu {
+                ForEach(artists, id: \.self) { artistName in
+                    FollowButton(artistName: artistName, followedArtists: $followedArtists, onToggle: onToggle)
+                }
+            } label: {
+                Label("Follow Artist", systemImage: "person.crop.circle.badge.plus")
+            }
+        } else if let artistName = artists.first {
+            FollowButton(artistName: artistName, followedArtists: $followedArtists, onToggle: onToggle)
+        }
+    }
+}
+
+private struct FollowButton: View {
+    let artistName: String
+    @Binding var followedArtists: [Artist]
+    let onToggle: (String) -> Void
+
+    private var isFollowed: Bool {
+        followedArtists.contains { $0.artistName.lowercased() == artistName.lowercased() }
+    }
+
+    private var buttonLabel: String {
+        isFollowed ? "Unfollow \(artistName)" : "Follow \(artistName)"
+    }
+
+    private var buttonImage: String {
+        isFollowed ? "person.crop.circle.badge.xmark" : "person.crop.circle.badge.plus"
+    }
+
+    var body: some View {
+        Button(buttonLabel, systemImage: buttonImage) {
+            Haptics.impact()
+            onToggle(artistName)
         }
     }
 }

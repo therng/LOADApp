@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 @MainActor
 final class APIService {
@@ -124,7 +125,7 @@ final class APIService {
             _ = try await session.data(from: url)
         } catch {
 #if DEBUG
-            print("🔥 Warmup failed:", error.localizedDescription)
+            Swift.print("🔥 Warmup failed:", error.localizedDescription)
 #endif
         }
     }
@@ -181,9 +182,26 @@ final class APIService {
     }
     
     // MARK: - Beatport Track ID Lookup
-    func BeatportTrackID(artist: String, title: String) async throws -> Int {
-        let parsed = title.parseTitleAndMix()
-        let url = try Endpoint.beatportID(artist: artist, title: parsed.title, mix: parsed.mix).url(base: endpointBase)
+    
+    /// Fetches the Beatport Track ID.
+    /// - Parameters:
+    ///   - artist: The artist name.
+    ///   - title: The track title. If `mix` is nil, this title will be parsed to extract a mix.
+    ///   - mix: Optional mix name. If provided, parsing is skipped.
+    func beatportTrackID(artist: String, title: String, mix: String? = nil) async throws -> Int {
+        let finalTitle: String
+        let finalMix: String?
+        
+        if let mix = mix {
+            finalTitle = title
+            finalMix = mix.isEmpty ? nil : mix
+        } else {
+            let parsed = title.parseTitleAndMix()
+            finalTitle = parsed.title
+            finalMix = parsed.mix
+        }
+        
+        let url = try Endpoint.beatportID(artist: artist, title: finalTitle, mix: finalMix).url(base: endpointBase)
         let response: BeatportResponse = try await request(url: url)
         return response.track_id
     }
@@ -199,9 +217,9 @@ final class APIService {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         
 #if DEBUG
-        print("🌐 [API Request] \(method): \(url.absoluteString)")
+        Swift.print("🌐 [API Request] \(method): \(url.absoluteString)")
         if let headers = request.allHTTPHeaderFields, !headers.isEmpty {
-            print("  Headers: \(headers)")
+            Swift.print("  Headers: \(headers)")
         }
 #endif
         
@@ -215,7 +233,7 @@ final class APIService {
             guard (200...299).contains(http.statusCode) else {
 #if DEBUG
                 if let body = String(data: data, encoding: .utf8) {
-                    print("❌ HTTP \(http.statusCode):", body)
+                    Swift.print("❌ HTTP \(http.statusCode):", body)
                 }
 #endif
                 throw APIError.badResponse(statusCode: http.statusCode)
@@ -240,6 +258,7 @@ final class APIService {
     // MARK: - Artwork Fetching
     
     private let artworkCache = NSCache<NSURL, NSData>()
+    private let iTunesResponseCache = NSCache<NSURL, NSData>()
     
     public static let yearFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -289,10 +308,20 @@ final class APIService {
         } catch {
             // Use #if DEBUG to only print errors during development
 #if DEBUG
-            print("Error fetching artwork data: \(error)")
+            Swift.print("Error fetching artwork data: \(error)")
 #endif
             return nil
         }
+    }
+    
+    /// Fetches the artwork image and returns the updated track (with metadata) and the image.
+    func fetchArtworkImage(for track: Track) async -> (updatedTrack: Track, image: UIImage?) {
+        let updatedTrack = await fetchArtwork(for: track)
+        if let data = await fetchArtworkData(for: updatedTrack),
+           let image = UIImage(data: data) {
+            return (updatedTrack, image)
+        }
+        return (updatedTrack, nil)
     }
 
     private func findArtwork(for track: Track) async -> (artworkURL: URL?, releaseDate: Date?)? {
@@ -315,7 +344,7 @@ final class APIService {
         }
         
         #if DEBUG
-        print("🌐 [Artwork Request]: \(url.absoluteString)")
+        Swift.print("🌐 [Artwork Request]: \(url.absoluteString)")
         #endif
         
         do {
@@ -324,17 +353,12 @@ final class APIService {
             let response = try JSONDecoder.customDateDecoder.decode(iTunesSearchResponse.self, from: data)
             
             // Filter results based on the specified criteria.
-            let filteredResults = response.results.filter { result in
-         
-                if !result.collectionName.localizedCaseInsensitiveContains(parsedTitle.title) {
-                    return false
-                }
-                
-                return true
+            let filteredResults = response.results.filter {
+                $0.collectionName?.localizedCaseInsensitiveContains(parsedTitle.title) ?? false
             }
 
             // Sort the filtered results by release date to find the earliest (original) version.
-            guard let firstResult = filteredResults.sorted(by: { $0.releaseDate < $1.releaseDate }).first else {
+            guard let firstResult = filteredResults.sorted(by: { ($0.releaseDate ?? .distantFuture) < ($1.releaseDate ?? .distantFuture) }).first else {
                 return nil
             }
             
@@ -355,24 +379,21 @@ final class APIService {
         }
     }
     
-    // MARK: - iTunes Artist Search
-    func searchForArtistAlbums(_ artistName: String) async throws -> [iTunesSearchResult] {
-        var components = URLComponents(string: "https://itunes.apple.com/search")!
-        components.queryItems = [
-            URLQueryItem(name: "term", value: artistName),
-            URLQueryItem(name: "media", value: "music"),
-            URLQueryItem(name: "entity", value: "album"),
-            URLQueryItem(name: "attribute", value: "artistTerm"), // Corrected from "attibute"
-            URLQueryItem(name: "limit", value: "200")
-        ]
-        
-        guard let tempUrl = components.url,
-              let url = URL(string: tempUrl.absoluteString.replacingOccurrences(of: "%20", with: "+")) else {
-            throw APIError.invalidURL
+    // MARK: - Generic iTunes Request
+    private func fetchITunesData<T: Decodable>(url: URL) async throws -> T {
+        // Check cache
+        if let cachedData = iTunesResponseCache.object(forKey: url as NSURL) {
+            do {
+                return try JSONDecoder.customDateDecoder.decode(T.self, from: cachedData as Data)
+            } catch {
+                #if DEBUG
+                print("⚠️ [iTunes Cache] Decoding failed, re-fetching.")
+                #endif
+            }
         }
         
         #if DEBUG
-        print("🌐 [Albums Request]: \(url.absoluteString)")
+        Swift.print("🌐 [iTunes Request]: \(url.absoluteString)")
         #endif
         
         let (data, response) = try await URLSession.shared.data(from: url)
@@ -381,23 +402,123 @@ final class APIService {
             throw APIError.badResponse(statusCode: (response as? HTTPURLResponse)?.statusCode ?? -1)
         }
         
+        // Cache data
+        iTunesResponseCache.setObject(data as NSData, forKey: url as NSURL)
+        
         do {
-            let searchResponse = try JSONDecoder.customDateDecoder.decode(iTunesSearchResponse.self, from: data)
-            
-            let filteredResults = searchResponse.results.filter { result in
-                // Only include albums with less than 10 tracks
-                return (result.trackCount ?? 0) <= 6
-            }
-            
-            // Sort by release date, newest first
-            return filteredResults.sorted { $0.releaseDate > $1.releaseDate }
+            return try JSONDecoder.customDateDecoder.decode(T.self, from: data)
         } catch {
             throw APIError.decodingError
         }
     }
+    
+    // MARK: - iTunes Search
+    func searchForArtist(_ artistName: String) async throws -> iTunesSearchResult? {
+        var components = URLComponents(string: "https://itunes.apple.com/search")!
+        components.queryItems = [
+            URLQueryItem(name: "term", value: artistName),
+            URLQueryItem(name: "media", value: "music"),
+            URLQueryItem(name: "entity", value: "musicArtist"),
+            URLQueryItem(name: "attribute", value: "artistTerm"),
+            URLQueryItem(name: "limit", value: "1")
+        ]
+        
+        guard let tempUrl = components.url,
+              let url = URL(string: tempUrl.absoluteString.replacingOccurrences(of: "%20", with: "+")) else {
+            throw APIError.invalidURL
+        }
+        
+        let searchResponse: iTunesSearchResponse = try await fetchITunesData(url: url)
+        return searchResponse.results.first
+    }
 
-    // MARK: - iTunes Album Track Lookup
-    func fetchTracksForAlbum(_ collectionId: Int) async throws -> [iTunesSearchResult] {
+    func searchForArtistAlbums(_ artistName: String) async throws -> [iTunesSearchResult] {
+        var components = URLComponents(string: "https://itunes.apple.com/search")!
+        components.queryItems = [
+            URLQueryItem(name: "term", value: artistName),
+            URLQueryItem(name: "media", value: "music"),
+            URLQueryItem(name: "entity", value: "album"),
+            URLQueryItem(name: "attribute", value: "artistTerm"),
+            URLQueryItem(name: "limit", value: "200")
+        ]
+        
+        guard let tempUrl = components.url,
+              let url = URL(string: tempUrl.absoluteString.replacingOccurrences(of: "%20", with: "+")) else {
+            throw APIError.invalidURL
+        }
+        
+        let searchResponse: iTunesSearchResponse = try await fetchITunesData(url: url)
+        
+        let filteredResults = searchResponse.results.filter { result in
+            // Only include albums with less than 10 tracks
+            return (result.trackCount ?? 0) <= 6
+        }
+        
+        // Sort by release date, newest first
+        return filteredResults.sorted { ($0.releaseDate ?? .distantPast) > ($1.releaseDate ?? .distantPast) }
+    }
+    
+    // MARK: - Web Scraping for Artist Image
+    func fetchArtistArtworkURL(from artistURL: URL) async -> URL? {
+        do {
+            let (data, _) = try await URLSession.shared.data(from: artistURL)
+            guard let html = String(data: data, encoding: .utf8) else { return nil }
+
+            // Regex to find the <meta property="og:image" ... > tag and extract its content.
+            // This is more robust as it handles other attributes and single/double quotes.
+            let regex = try NSRegularExpression(pattern: "<meta[^>]+property=[\\\"']og:image[\\\"'][^>]+content=[\\\"']([^\\\"']+)[\"'][^>]*>", options: .caseInsensitive)
+            let range = NSRange(html.startIndex..<html.endIndex, in: html)
+
+            guard let match = regex.firstMatch(in: html, options: [], range: range) else {
+                return nil
+            }
+
+            // Extract the URL from the content attribute (capture group 1).
+            guard let contentRange = Range(match.range(at: 1), in: html) else {
+                return nil
+            }
+            let originalURLString = String(html[contentRange])
+
+            // Per documentation, replace the filename to get a high-resolution version.
+            guard let lastSlashIndex = originalURLString.lastIndex(of: "/") else {
+                return URL(string: originalURLString) // Return original if format is unexpected.
+            }
+            
+            let baseURL = originalURLString[...lastSlashIndex]
+            let highResURLString = String(baseURL) + "10000x10000-999.jpg"
+            
+            return URL(string: highResURLString)
+
+        } catch {
+            #if DEBUG
+            print("Failed to fetch or parse artist page for artwork: \(error)")
+            #endif
+            return nil
+        }
+    }
+
+    // MARK: - iTunes Lookup
+    func fetchArtistAlbums(artistId: Int) async throws -> [iTunesSearchResult] {
+        var components = URLComponents(string: "https://itunes.apple.com/lookup")!
+        components.queryItems = [
+            URLQueryItem(name: "id", value: String(artistId)),
+            URLQueryItem(name: "entity", value: "album"),
+            URLQueryItem(name: "media", value: "music"),
+            URLQueryItem(name: "limit", value: "200")
+        ]
+        
+        guard let url = components.url else {
+            throw APIError.invalidURL
+        }
+        
+        let searchResponse: iTunesSearchResponse = try await fetchITunesData(url: url)
+        // The lookup returns the artist as the first result, followed by albums.
+        // We drop the first result and sort the remaining albums by release date.
+        let albums = searchResponse.results.dropFirst().filter { ($0.trackCount ?? 0) > 5 }
+        return Array(albums).sorted { ($0.releaseDate ?? .distantPast) > ($1.releaseDate ?? .distantPast) }
+    }
+
+    func fetchTracksForAlbum(collectionId: Int) async throws -> [iTunesSearchResult] {
         var components = URLComponents(string: "https://itunes.apple.com/lookup")!
         components.queryItems = [
             URLQueryItem(name: "id", value: String(collectionId)),
@@ -409,26 +530,31 @@ final class APIService {
             throw APIError.invalidURL
         }
         
-        #if DEBUG
-        print("🌐 [Tracks Request]: \(url.absoluteString)")
-        #endif
+        let searchResponse: iTunesSearchResponse = try await fetchITunesData(url: url)
+        // Filter out the first result which is the collection itself, and sort by track number
+        return searchResponse.results
+            .filter { $0.wrapperType == "track" }
+            .sorted { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
+    }
+    
+    func fetchTracksForArtists(artistIds: [Int]) async throws -> [iTunesSearchResult] {
+        let idString = artistIds.map(String.init).joined(separator: ",")
+        var components = URLComponents(string: "https://itunes.apple.com/lookup")!
+        components.queryItems = [
+            URLQueryItem(name: "id", value: idString),
+            URLQueryItem(name: "entity", value: "album"),
+            URLQueryItem(name: "media", value: "music"),
+            URLQueryItem(name: "limit", value: "10"),
+            URLQueryItem(name: "sort", value: "recent")
+        ]
         
-        let (data, response) = try await URLSession.shared.data(from: url)
-        
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw APIError.badResponse(statusCode: (response as? HTTPURLResponse)?.statusCode ?? -1)
+        guard let url = components.url else {
+            throw APIError.invalidURL
         }
         
-        do {
-            let searchResponse = try JSONDecoder.customDateDecoder.decode(iTunesSearchResponse.self, from: data)
-            // Filter out the first result which is the collection itself, and sort by track number
-            return searchResponse.results
-                .filter { $0.wrapperType == "track" }
-                .sorted { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
-            
-        } catch {
-            throw APIError.decodingError
-        }
+        let searchResponse: iTunesSearchResponse = try await fetchITunesData(url: url)
+        // Filter out any non-track results (like the artist objects themselves)
+        return searchResponse.results.filter { $0.wrapperType == "track" }
     }
 }
 

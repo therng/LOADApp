@@ -7,7 +7,7 @@ struct LOADApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+       ContentView()
                 .environmentObject(player)
                 .task {
                     await APIService.shared.warmUp()

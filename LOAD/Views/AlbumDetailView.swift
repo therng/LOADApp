@@ -5,6 +5,7 @@ struct AlbumDetailView: View {
     
     @EnvironmentObject var player: AudioPlayerService
     @State private var tracks: [iTunesSearchResult] = []
+    @State private var playableTracks: [Track] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var showCopiedBanner = false
@@ -25,7 +26,7 @@ struct AlbumDetailView: View {
                 if showCopiedBanner {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(Color(.green))
+                            .foregroundColor(.green)
                         Text("Copied to Clipboard")
                     }
                     .font(.subheadline.weight(.semibold))
@@ -38,7 +39,7 @@ struct AlbumDetailView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .navigationTitle(album.collectionName)
+            .navigationTitle(album.collectionName ?? "Album")
             .navigationBarTitleDisplayMode(.inline)
             .task {
                 await loadTracks()
@@ -106,14 +107,16 @@ struct AlbumDetailView: View {
                     image
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .blur(radius: 40)
-                        .overlay(Color.black.opacity(0.05))
+                        .blur(radius: 35, opaque: false)
                 } placeholder: {
                     Color.clear
                 }
-            } else {
-                Color(uiColor: .systemBackground)
             }
+            LinearGradient(
+                colors: [.black.opacity(0.6), .black.opacity(0.2), .black.opacity(0.6)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
         }
         .ignoresSafeArea()
     }
@@ -126,7 +129,7 @@ struct AlbumDetailView: View {
                     .aspectRatio(contentMode: .fit)
             } placeholder: {
                 Rectangle()
-                    .fill(Color(.systemGray5))
+                    .fill(Color(uiColor: .systemGray5))
                     .overlay {
                         Image(systemName: "music.note")
                             .foregroundColor(.secondary)
@@ -138,7 +141,7 @@ struct AlbumDetailView: View {
             .shadow(radius: 15, y: 5)
             .padding(.bottom, 16)
             
-            Text(album.collectionName)
+            Text(album.collectionName ?? "Untitled Album")
                 .font(.title2.weight(.bold))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
@@ -223,13 +226,16 @@ struct AlbumDetailView: View {
         if let genre = album.primaryGenreName, !genre.isEmpty {
             parts.append(genre)
         }
-        let year = String(Calendar.current.component(.year, from: album.releaseDate))
-        parts.append(year)
+        if let releaseDate = album.releaseDate {
+            let year = String(Calendar.current.component(.year, from: releaseDate))
+            parts.append(year)
+        }
         return parts.joined(separator: " • ")
     }
     
     private var formattedReleaseDate: String {
-        Self.fullDateFormatter.string(from: album.releaseDate)
+        guard let releaseDate = album.releaseDate else { return "Unknown Release Date" }
+        return Self.fullDateFormatter.string(from: releaseDate)
     }
     
     private var formattedTotalDuration: String {
@@ -262,10 +268,17 @@ struct AlbumDetailView: View {
     }
     
     private func loadTracks() async {
+        guard let collectionId = album.collectionId else {
+            errorMessage = "This album could not be found."
+            isLoading = false
+            return
+        }
+        
         isLoading = true
         do {
-            let searchResults = try await APIService.shared.fetchTracksForAlbum(album.collectionId)
+            let searchResults = try await APIService.shared.fetchTracksForAlbum(collectionId: collectionId)
             self.tracks = searchResults
+            self.playableTracks = searchResults.compactMap(makeTrack)
             self.errorMessage = nil
         } catch {
             self.errorMessage = error.localizedDescription
@@ -280,7 +293,7 @@ struct AlbumDetailView: View {
             duration: (item.trackTimeMillis ?? 0) / 1000,
             key: String(item.trackId ?? 0),
             artworkURL: item.highResArtworkURL,
-            releaseDate: APIService.yearFormatter.string(from: item.releaseDate),
+            releaseDate: item.releaseDate.map { APIService.yearFormatter.string(from: $0) },
             customStreamURL: item.previewUrl
         )
     }
@@ -288,98 +301,32 @@ struct AlbumDetailView: View {
     // MARK: - Playback Logic
     
     private func playAlbum() {
-        if let first = tracks.first {
-            playPreview(startingAt: first)
+        if let first = playableTracks.first {
+            playTracks(playableTracks, startingAt: first)
         }
     }
     
     private func shuffleAlbum() {
-        let shuffled = tracks.shuffled()
+        let shuffled = playableTracks.shuffled()
         if let first = shuffled.first {
             playTracks(shuffled, startingAt: first)
         }
     }
     
-    private func playPreview(startingAt track: iTunesSearchResult) {
-        playTracks(tracks, startingAt: track)
+    private func playPreview(startingAt trackItem: iTunesSearchResult) {
+        if let track = playableTracks.first(where: { $0.key == String(trackItem.trackId ?? 0) }) {
+            playTracks(playableTracks, startingAt: track)
+        }
     }
     
-    private func playTracks(_ trackList: [iTunesSearchResult], startingAt track: iTunesSearchResult) {
-        guard track.previewUrl != nil else { return }
+    private func playTracks(_ trackList: [Track], startingAt track: Track) {
+        guard track.customStreamURL != nil else { return }
+        Haptics.impact()
         
-        let convertedTracks = trackList.compactMap { item -> Track? in
-            guard item.previewUrl != nil else { return nil }
-            return makeTrack(from: item)
-        }
-        
-        if let index = convertedTracks.firstIndex(where: { $0.key == String(track.trackId ?? 0) }) {
-            player.setQueue(convertedTracks, startAt: index)
+        if let index = trackList.firstIndex(where: { $0.key == track.key }) {
+            player.setQueue(trackList, startAt: index)
         }
     }
 }
 
-// Subview to handle row state independently
-private struct AlbumTrackRowView: View {
-    let item: iTunesSearchResult
-    let track: Track
-    let onPlay: () -> Void
-    let onCopy: () -> Void
-    
-    @EnvironmentObject var player: AudioPlayerService
-    @State private var isPressing = false
-    
-    var body: some View {
-        HStack(spacing: 4) {
-            let isCurrent = player.currentTrack?.key == String(item.trackId ?? 0)
-            
-            if isCurrent {
-                PreviewProgressView(
-                    progress: player.currentTime / (player.duration > 0 ? player.duration : 30.0),
-                    isPlaying: player.isPlaying
-                )
-                .frame(width: 25, height: 25)
-            } else {
-                Text("\(item.trackNumber ?? 0)")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-                    .monospacedDigit()
-                    .frame(width: 25, alignment: .center)
-            }
-            
-            TrackRow(track: track, isDimmed: item.previewUrl == nil)
-        }
-        .scaleEffect(isPressing ? 0.95 : 1.0)
-        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressing)
-        .contentShape(Rectangle())
-        .onLongPressGesture(minimumDuration: 0.5, perform: {
-            onCopy()
-        }, onPressingChanged: { pressing in
-            isPressing = pressing
-        })
-        .onTapGesture {
-            onPlay()
-        }
-    }
-}
 
-struct PreviewProgressView: View {
-    let progress: Double
-    let isPlaying: Bool
-    
-    var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.blue.opacity(0.3), lineWidth: 2)
-            
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(Color.blue, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .animation(.linear(duration: 0.5), value: progress)
-            
-            Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                .font(.system(size: 10))
-                .foregroundStyle(.blue)
-        }
-    }
-}

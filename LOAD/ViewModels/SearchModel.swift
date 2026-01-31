@@ -1,12 +1,22 @@
 import SwiftUI
 import Combine
 
+enum SearchMode {
+    case library
+    case artist
+}
+
 @MainActor
-class SearchViewModel: ObservableObject {
+class SearchModel: ObservableObject {
     @Published var searchText: String = ""
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
     @Published var presentedResponse: SearchResponse?
+    @Published var searchMode: SearchMode = .library
+    @Published var shouldNavigateToResult: Bool = false
+    
+    // For artist search results
+    @Published var artistAlbums: [iTunesSearchResult] = []
     
     func performSearch() {
         // Dismiss keyboard manually since .searchable focus binding isn't available/reliable here
@@ -17,14 +27,24 @@ class SearchViewModel: ObservableObject {
         
         isLoading = true
         errorMessage = nil
-        presentedResponse = nil // Reset to ensure navigation triggers fresh
+        presentedResponse = nil
+        artistAlbums = []
+        shouldNavigateToResult = false
         
         Task {
             do {
-                let (searchId, tracks) = try await APIService.shared.search(query: q)
-                let response = SearchResponse(search_id: searchId, results: tracks, query: q, count: tracks.count)
+                switch searchMode {
+                case .library:
+                    let (searchId, tracks) = try await APIService.shared.search(query: q)
+                    let response = SearchResponse(search_id: searchId, results: tracks, query: q, count: tracks.count)
+                    self.presentedResponse = response
+                    self.shouldNavigateToResult = true
+                    
+                case .artist:
+                    let albums = try await APIService.shared.searchForArtistAlbums(q)
+                    self.artistAlbums = albums
+                }
                 
-                self.presentedResponse = response
                 Haptics.impact(.medium)
                 self.isLoading = false
             } catch {

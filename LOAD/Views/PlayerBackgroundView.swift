@@ -8,30 +8,19 @@ struct PlayerBackgroundView: View {
             if let artwork = player.artworkImage {
                 Image(uiImage: artwork)
                     .resizable()
-                    .aspectRatio(contentMode:.fill)
-                    .blur(radius: 35 , opaque: false)
+                    .aspectRatio(contentMode: .fill)
+                    .blur(radius: 35, opaque: false)
             } else {
                 Rectangle()
-                    .fill(player.dominantColor ?? Color.clear)
+                    .fill(.clear)
             }
+            
+            LinearGradient(
+                colors: [.black.opacity(0.6), .black.opacity(0.2), .black.opacity(0.6)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
         }
         .ignoresSafeArea()
     }
-}
-
-#Preview {
-    let player: AudioPlayerService = {
-        let service = AudioPlayerService()
-        let track = Track(
-            artist: "Daxson",
-            title: "Gravity",
-            duration: 120,
-            key: "preview",
-            releaseDate: "2024"
-        )
-        service.setQueue([track])
-        return service
-    }()
-    return PlayerBackgroundView()
-        .environmentObject(player)
 }

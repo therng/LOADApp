@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct HistoryView: View {
     private static let relativeFormatter: RelativeDateTimeFormatter = {
@@ -7,9 +8,7 @@ struct HistoryView: View {
         return f
     }()
     
-    @Binding var selectedTab: Int
-    @Binding var searchText: String
-    @Binding var isSearchPresented: Bool
+    let onSelect: (String) -> Void
     @EnvironmentObject var player: AudioPlayerService
     @State private var historyItems: [HistoryItem] = []
     @State private var isLoading = false
@@ -28,6 +27,8 @@ struct HistoryView: View {
             }
         }
         .navigationTitle("History")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if !historyItems.isEmpty {
@@ -113,10 +114,7 @@ struct HistoryView: View {
 
     private func retrySearch(_ item: HistoryItem) {
         Haptics.impact(.medium)
-        selectedTab = 0
-        searchText = item.query
-        isSearchPresented = false
-        
+        onSelect(item.query)
     }
 
     private func loadHistory(force: Bool = false) async {
