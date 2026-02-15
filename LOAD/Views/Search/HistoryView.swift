@@ -9,7 +9,7 @@ struct HistoryView: View {
     }()
     
     let onSelect: (String) -> Void
-    @EnvironmentObject var player: AudioPlayerService
+    @Environment(AudioPlayerService.self) var player
     @State private var historyItems: [HistoryItem] = []
     @State private var isLoading = false
     @State private var showErrorAlert = false

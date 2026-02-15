@@ -1,13 +1,14 @@
 import Foundation
-import Combine
 import SwiftUI
 
 // A singleton service to manage the user's collection of followed artists.
-class ArtistStorageService: ObservableObject {
+@MainActor
+@Observable
+class ArtistStorageService {
     static let shared = ArtistStorageService()
     private let userDefaultsKey = "followedArtists"
 
-    @Published private(set) var artists: [Artist] = []
+    private(set) var artists: [Artist] = []
 
     private init() {
         loadArtists()
@@ -19,39 +20,11 @@ class ArtistStorageService: ObservableObject {
         artists.contains { $0.artistName.lowercased() == artistName.lowercased() }
     }
 
-    @MainActor
     func toggleFollow(artistName: String) async {
         if isArtistFollowed(artistName: artistName) {
-            // Unfollow
-            artists.removeAll { $0.artistName.lowercased() == artistName.lowercased() }
-            saveArtists()
+            unfollow(artistName: artistName)
         } else {
-            // Follow
-            do {
-                if let artistResult = try await APIService.shared.searchForArtist(artistName) {
-                    var newArtist = Artist(
-                        artistId: artistResult.artistId ?? artistName.hashValue,
-                        artistName: artistResult.artistName,
-                        artistLinkUrl: artistResult.artistLinkUrl,
-                        primaryGenreName: artistResult.primaryGenreName,
-                        wrapperType: "artist"
-                    )
-                    
-                    let artistId = newArtist.artistId
-                    if let artistPageURL = URL(string: "https://music.apple.com/us/artist/\(artistId)") {
-                        if let imageURL = await APIService.shared.fetchArtistArtworkURL(from: artistPageURL) {
-                            newArtist.artworkURL = imageURL
-                        }
-                    }
-                    
-                    if !isArtistFollowed(artistName: newArtist.artistName) {
-                        artists.append(newArtist)
-                        saveArtists()
-                    }
-                }
-            } catch {
-                print("Error following artist: \(error.localizedDescription)")
-            }
+            await follow(artistName: artistName)
         }
     }
     
@@ -71,6 +44,39 @@ class ArtistStorageService: ObservableObject {
         saveArtists()
     }
 
+    // MARK: - Internal Logic
+
+    private func unfollow(artistName: String) {
+        artists.removeAll { $0.artistName.lowercased() == artistName.lowercased() }
+        saveArtists()
+    }
+
+    private func follow(artistName: String) async {
+        do {
+            guard let result = try await APIService.shared.searchForArtist(artistName) else { return }
+            
+            var newArtist = Artist(
+                artistId: result.artistId ?? artistName.hashValue,
+                artistName: result.artistName,
+                artistLinkUrl: result.artistLinkUrl,
+                primaryGenreName: result.primaryGenreName,
+                wrapperType: "artist"
+            )
+            
+            // Fetch artist image if link is available
+            if let link = newArtist.artistLinkUrl,
+               let imageURL = await APIService.shared.fetchArtistImage(from: link) {
+                newArtist.artistImage = imageURL
+            }
+            
+            if !isArtistFollowed(artistName: newArtist.artistName) {
+                artists.append(newArtist)
+                saveArtists()
+            }
+        } catch {
+            print("Error following artist: \(error.localizedDescription)")
+        }
+    }
 
     // MARK: - Persistence
 

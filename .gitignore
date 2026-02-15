@@ -64,3 +64,4 @@ Icon?
 
 .gemini/
 gha-creds-*.json
+.xcodebuildmcp/

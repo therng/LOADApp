@@ -21,7 +21,7 @@ private struct AlbumGridItemView: View {
                         }
                 }
                 .aspectRatio(1, contentMode: .fill)
-                .cornerRadius(8)
+                .clipShape(.rect(cornerRadius: 8))
                 .shadow(radius: 3)
                 
                 Text(album.collectionName ?? "Untitled Album")
@@ -32,6 +32,7 @@ private struct AlbumGridItemView: View {
                 Text(album.releaseDate.map { APIService.yearFormatter.string(from: $0) } ?? "—")
                     .font(.caption2)
                     .foregroundColor(.secondary)
+            
             }
         }
     }
@@ -48,7 +49,7 @@ struct ArtistDetailView: View {
     
     // Grid layout configuration
     private let columns: [GridItem] = [
-        GridItem(.adaptive(minimum: 150))
+        GridItem(.adaptive(minimum: 170))
     ]
 
     var body: some View {
@@ -77,12 +78,15 @@ struct ArtistDetailView: View {
     
     private var albumGridView: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 25) {
+            LazyVGrid(columns: columns, spacing: 20) {
                 ForEach(albums) { album in
                     AlbumGridItemView(album: album)
                 }
             }
             .padding()
+        }
+        .refreshable {
+            await loadArtistAlbums()
         }
     }
     
@@ -90,7 +94,19 @@ struct ArtistDetailView: View {
         do {
             isLoading = true
             let searchResults = try await APIService.shared.fetchArtistAlbums(artistId: artistId)
-            self.albums = searchResults
+            
+            // FIX: Filter out duplicate results by ID. iTunes API results often contain duplicate 
+            // collection IDs for different versions of the same album/single. 
+            // LazyVGrid crashes immediately if duplicate IDs are passed to ForEach.
+            var uniqueResults = [iTunesSearchResult]()
+            var seenIds = Set<Int>()
+            for result in searchResults {
+                if seenIds.insert(result.id).inserted {
+                    uniqueResults.append(result)
+                }
+            }
+            
+            self.albums = uniqueResults
             self.errorMessage = nil
         } catch {
             self.errorMessage = error.localizedDescription
@@ -99,11 +115,9 @@ struct ArtistDetailView: View {
     }
 }
 
-
-#Preview {
-    NavigationStack {
-        // Example ID for "Marlo" or similar
-        ArtistDetailView(artistId: 261899, artistName: "Marlo")
+#Preview{
+    NavigationStack{
+        ArtistDetailView(artistId: 481465908, artistName: "")
+            .environment(AudioPlayerService.shared)
     }
-    .environmentObject(AudioPlayerService.shared)
 }

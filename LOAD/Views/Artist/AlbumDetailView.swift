@@ -3,7 +3,7 @@ import SwiftUI
 struct AlbumDetailView: View {
     let album: iTunesSearchResult
     
-    @EnvironmentObject var player: AudioPlayerService
+    @Environment(AudioPlayerService.self) var player
     @State private var tracks: [iTunesSearchResult] = []
     @State private var playableTracks: [Track] = []
     @State private var isLoading = true
@@ -61,12 +61,13 @@ struct AlbumDetailView: View {
     }
     
     private var trackListView: some View {
-        List {
+        List{
             albumHeader
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets())
-                .padding(.vertical)
+                .padding(.vertical, 5)
                 .listRowBackground(Color.clear)
+   
 
             ForEach(tracks) { item in
                 trackRowView(for: item)
@@ -80,12 +81,14 @@ struct AlbumDetailView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .padding(.top, 50)
+        .ignoresSafeArea(edges: .top)
     }
     
     private func trackRowView(for item: iTunesSearchResult) -> some View {
-        AlbumTrackRowView(
-            item: item,
+        TrackRow(
             track: makeTrack(from: item),
+            isDimmed: item.previewUrl == nil,
             onPlay: {
                 if player.currentTrack?.key == String(item.trackId ?? 0) {
                     player.togglePlayPause()
@@ -126,7 +129,7 @@ struct AlbumDetailView: View {
             AsyncImage(url: album.highResArtworkURL) { image in
                 image
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .aspectRatio(contentMode: .fill)
             } placeholder: {
                 Rectangle()
                     .fill(Color(uiColor: .systemGray5))
@@ -136,64 +139,33 @@ struct AlbumDetailView: View {
                             .font(.largeTitle)
                     }
             }
-            .frame(width: 240, height: 240)
+//            .frame(width: 300, height: 300)
             .cornerRadius(12)
             .shadow(radius: 15, y: 5)
             .padding(.bottom, 16)
+
+            
             
             Text(album.collectionName ?? "Untitled Album")
-                .font(.title2.weight(.bold))
+                .font(.title3.weight(.bold))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal)
+                .padding(.horizontal, 20)
+                .lineLimit(1)
 
             Text(album.artistName)
-                .font(.title3)
+                .font(.body)
                 .foregroundStyle(.pink)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
-            
+                .lineLimit(1)
             // Genre • Year
             Text(metadataString)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .padding(.top, 2)
-            
-            // Action Buttons
-            HStack(spacing: 12) {
-                Button(action: playAlbum) {
-                    HStack {
-                        Image(systemName: "play.fill")
-                        Text("Play")
-                    }
-                    .font(.headline)
-                    .foregroundStyle(.pink)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color(uiColor: .secondarySystemFill))
-                    .cornerRadius(12)
-                }
-                .buttonStyle(.plain)
-                .disabled(tracks.isEmpty)
-
-                Button(action: shuffleAlbum) {
-                    HStack {
-                        Image(systemName: "shuffle")
-                        Text("Shuffle")
-                    }
-                    .font(.headline)
-                    .foregroundStyle(.pink)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color(uiColor: .secondarySystemFill))
-                    .cornerRadius(12)
-                }
-                .buttonStyle(.plain)
-                .disabled(tracks.isEmpty)
-            }
-            .padding(.top, 20)
-            .padding(.horizontal)
         }
         .frame(maxWidth: .infinity)
+
     }
     
     private var albumFooter: some View {
@@ -300,19 +272,6 @@ struct AlbumDetailView: View {
     
     // MARK: - Playback Logic
     
-    private func playAlbum() {
-        if let first = playableTracks.first {
-            playTracks(playableTracks, startingAt: first)
-        }
-    }
-    
-    private func shuffleAlbum() {
-        let shuffled = playableTracks.shuffled()
-        if let first = shuffled.first {
-            playTracks(shuffled, startingAt: first)
-        }
-    }
-    
     private func playPreview(startingAt trackItem: iTunesSearchResult) {
         if let track = playableTracks.first(where: { $0.key == String(trackItem.trackId ?? 0) }) {
             playTracks(playableTracks, startingAt: track)
@@ -328,5 +287,4 @@ struct AlbumDetailView: View {
         }
     }
 }
-
 

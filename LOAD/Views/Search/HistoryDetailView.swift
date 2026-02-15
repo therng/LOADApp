@@ -5,21 +5,24 @@ struct HistoryDetailView: View {
     let searchId: String
     let preloadedResponse: SearchResponse?
     
-    @EnvironmentObject var player: AudioPlayerService
+    @Environment(AudioPlayerService.self) var player
     @State private var searchResponse: SearchResponse?
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var safariURLItem: SafariURLItem?
     @State private var safariDetent: PresentationDetent = .medium
-    @State private var sortOption: SortOption = .relevance
+    @State private var sortOption: HistorySortOption = .relevance
     @State private var isAscending: Bool = true
     @State private var artistToShow: ArtistDisplayItem?
     
     // Beatport Search State
-    @State private var showBeatportAlert = false
-    @State private var beatportArtist = ""
-    @State private var beatportTitle = ""
-    @State private var beatportMix = ""
+//    @State private var showBeatportAlert = false
+//    @State private var beatportArtist = ""
+//    @State private var beatportTitle = ""
+//    @State private var beatportMix = ""
+//    
+    // Banner State
+
     
     init(searchId: String, preloadedResponse: SearchResponse? = nil) {
         self.searchId = searchId
@@ -30,12 +33,13 @@ struct HistoryDetailView: View {
         ScrollView {
             content
         }
+        
         .refreshable {
-            await fetch(force: true)
+            await fetch()
         }
-        .navigationTitle(searchResponse?.query ?? "Loading…")
+        .navigationTitle(searchResponse?.query ?? "")
         .navigationBarTitleDisplayMode(.inline)
-        .beatportSearchAlert(isPresented: $showBeatportAlert, artist: $beatportArtist, title: $beatportTitle, mix: $beatportMix)
+//        .beatportSearchAlert(isPresented: $showBeatportAlert, artist: $beatportArtist, title: $beatportTitle, mix: $beatportMix)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -49,19 +53,15 @@ struct HistoryDetailView: View {
             }
         }
         .task(id: searchId) {
+            // Clear previous state to avoid stale UI when searchId changes
+            searchResponse = nil
+            errorMessage = nil
+
             if let preloaded = preloadedResponse {
-                self.searchResponse = preloaded
+                searchResponse = preloaded
             } else {
                 await fetch()
             }
-        }
-        .sheet(item: $safariURLItem) { item in
-            SafariView(url: item.url)
-                .presentationDetents([.medium, .large], selection: $safariDetent)
-                .presentationDragIndicator(.visible)
-        }
-        .navigationDestination(item: $artistToShow) { artistItem in
-            ArtistDetailView(artistId: artistItem.id, artistName: artistItem.name)
         }
     }
 
@@ -102,49 +102,31 @@ struct HistoryDetailView: View {
             )
             .padding(.top, 50)
         } else {
-            LazyVStack(spacing: 12) {
+            LazyVStack(spacing: 15) {
                 ForEach(results) { track in
-                    TrackRow(track: track)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
+                    TrackRow(
+                        track: track,
+                        showSaveAction: true,
+                        onPlay: {
                             Haptics.impact()
-                            if let index = results.firstIndex(where: { $0.id == track.id }) {
-                                player.setQueue(results, startAt: index)
+                            if player.currentTrack?.id == track.id {
+                                player.togglePlayPause()
+                            } else {
+                                if let index = results.firstIndex(where: { $0.id == track.id }) {
+                                    player.setQueue(results, startAt: index)
+                                }
                             }
                         }
-                        .contextMenu {
-                            TrackActionMenuItems(
-                                track: track,
-                                onSave: { url in
-                                    safariDetent = .medium
-                                    safariURLItem = SafariURLItem(url: url)
-                                },
-                                onGoToArtist: { artistName in
-                                    Task {
-                                        if let artist = try? await APIService.shared.searchForArtist(artistName),
-                                           let artistId = artist.artistId {
-                                            self.artistToShow = ArtistDisplayItem(id: artistId, name: artist.artistName)
-                                        }
-                                    }
-                                },
-                                onSearchBeatport: { artist, title, mix in
-                                    self.beatportArtist = artist
-                                    self.beatportTitle = title
-                                    self.beatportMix = mix
-                                    self.showBeatportAlert = true
-                                },
-                                player: player
-                            )
-                        }
+                    )
                 }
             }
-            .padding()
+            .padding(.horizontal)
         }
     }
     
     @ViewBuilder
     private var sortMenuButtons: some View {
-        ForEach(SortOption.allCases) { option in
+        ForEach(HistorySortOption.allCases) { option in
             Button {
                 if sortOption == option {
                     if option != .relevance {
@@ -169,7 +151,7 @@ struct HistoryDetailView: View {
     }
     
     @MainActor
-    private func fetch(force: Bool = false) async {
+    private func fetch() async {
         guard !isLoading else { return }
         
         isLoading = true
@@ -199,12 +181,10 @@ private struct SafariURLItem: Identifiable {
     var id: URL { url }
 }
 
-private enum SortOption: String, CaseIterable, Identifiable {
+private enum HistorySortOption: String, CaseIterable, Identifiable {
     case relevance, title, artist, duration
 
     var id: String { rawValue }
-
-// ... (Rest of SortOption enum)
 
     var systemIcon: String {
         switch self {
@@ -243,8 +223,7 @@ private enum SortOption: String, CaseIterable, Identifiable {
 
 #Preview {
     NavigationStack {
-        HistoryDetailView(searchId: "696fb2e7cf275cab418ac4ad")
+        HistoryDetailView(searchId: "6990ee6b86b9ce03158ecf2f")
     }
-    .environmentObject(AudioPlayerService.shared)
+    .environment(AudioPlayerService.shared)
 }
-

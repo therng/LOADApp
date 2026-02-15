@@ -10,7 +10,7 @@ struct Artist: Identifiable, Codable, Hashable {
     let wrapperType: String
 
     // App-specific Extension Fields
-    var artworkURL: URL?
+    var artistImage: URL?
     var isPinned: Bool = false
     var sortOrder: Int = 0
     var followedAt: Date = Date()
@@ -18,10 +18,10 @@ struct Artist: Identifiable, Codable, Hashable {
     var id: Int { artistId }
 
     static func == (lhs: Artist, rhs: Artist) -> Bool {
-        lhs.artistId == rhs.artistId
+        lhs.id == rhs.id
     }
 
     func hash(into hasher: inout Hasher) {
-        hasher.combine(artistId)
+        hasher.combine(id)
     }
 }

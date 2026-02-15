@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PlayerBackgroundView: View {
-    @EnvironmentObject var player: AudioPlayerService
+    @Environment(AudioPlayerService.self) var player
 
     var body: some View {
         ZStack {

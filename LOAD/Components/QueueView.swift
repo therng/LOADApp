@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct QueueView: View {
-    @EnvironmentObject var player: AudioPlayerService
+    @Environment(AudioPlayerService.self) var player
 
     private var hasContent: Bool {
         player.currentTrack != nil || !player.upcomingTracks.isEmpty
@@ -59,16 +59,16 @@ struct QueueView: View {
         if !player.upcomingTracks.isEmpty {
             Section("Next Up") {
                 ForEach(Array(player.upcomingTracks.enumerated()), id: \.element.id) { index, track in
-                    TrackRow(track: track)
-                        .background(.clear)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            Haptics.impact()
-                            // Calculate absolute index in the main queue
-                            let absoluteIndex = player.currentIndex + 1 + index
-                            player.playFromQueue(index: absoluteIndex)
-                        }
-                        .swipeActions(edge: .trailing) {
+                    Button(action: {
+                        Haptics.impact()
+                        // Calculate absolute index in the main queue
+                        let absoluteIndex = player.currentIndex + 1 + index
+                        player.playFromQueue(index: absoluteIndex)
+                    }) {
+                        TrackRow(track: track)
+                    }
+                    .buttonStyle(.plain)
+                    .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 Haptics.impact(.medium)
                                 player.removeUpcoming(at: IndexSet(integer: index))

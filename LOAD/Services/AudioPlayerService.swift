@@ -6,28 +6,29 @@ import UIKit
 import MediaPlayer
 
 @MainActor
-final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegate {
+@Observable
+final class AudioPlayerService: NSObject, AVAudioPlayerDelegate {
 
     // MARK: - Singleton
     static let shared = AudioPlayerService()
 
     // MARK: - Public State (UI-facing)
 
-    @Published private(set) var queue: [Track] = []
-    @Published private(set) var currentIndex: Int = 0
-    @Published private(set) var currentTrack: Track?
-    @Published private(set) var artworkImage: UIImage?
+    private(set) var queue: [Track] = []
+    private(set) var currentIndex: Int = 0
+    private(set) var currentTrack: Track?
+    private(set) var artworkImage: UIImage?
 
-    @Published private(set) var isPlaying: Bool = false
-    @Published private(set) var isLoading: Bool = false
+    private(set) var isPlaying: Bool = false
+    private(set) var isLoading: Bool = false
 
-    @Published var currentTime: Double = 0
-    @Published private(set) var duration: Double = 0
+    var currentTime: Double = 0
+    private(set) var duration: Double = 0
 
-    @Published var isSeeking: Bool = false
-    @Published private(set) var didFinishPlayback: Bool = false
+    var isSeeking: Bool = false
+    private(set) var didFinishPlayback: Bool = false
 
-    @Published var volume: Float = 1.0 {
+    var volume: Float = 1.0 {
         didSet {
             let clamped = min(max(volume, 0), 1)
             if volume != clamped {
@@ -46,9 +47,9 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
 
     // MARK: - Observers / Timers
 
-    private var timeObserver: Any?
-    private var endObserver: NSObjectProtocol?
-    private var progressTimer: Timer?
+    @ObservationIgnored private var timeObserver: Any?
+    @ObservationIgnored private var endObserver: NSObjectProtocol?
+    @ObservationIgnored private var progressTimer: Timer?
 
     // MARK: - Init
 
@@ -220,12 +221,14 @@ final class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegat
     private func updateArtwork(for track: Track) {
         let trackID = track.id // Capture ID to prevent race conditions
         Task {
-            let (updatedTrack, image) = await APIService.shared.fetchArtworkImage(for: track)
+            let updatedTrack = await APIService.shared.fetchArtwork(for: track)
+            let data = await APIService.shared.fetchArtworkData(for: updatedTrack)
+            let image = data != nil ? UIImage(data: data!) : nil
             
             // Ensure the track we fetched artwork for is still the current one
             guard self.currentTrack?.id == trackID else { return }
             
-            // Update track metadata (artwork URL, release date, etc.)
+            // Update track metadata (artwork URL, releaseDate, etc.)
             self.currentTrack = updatedTrack
             
             if let image = image?.makeThreadSafe() {

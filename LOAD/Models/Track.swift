@@ -1,5 +1,18 @@
 import Foundation
 
+struct BeatportTrack: Codable, Identifiable {
+    let trackId: Int
+    let trackUrl: URL? // Made optional to handle cases where only the ID is returned
+
+    // Identifiable conformance for SwiftUI Lists
+    var id: Int { trackId }
+
+    enum CodingKeys: String, CodingKey {
+        case trackId = "track_id"
+        case trackUrl = "track_url"
+    }
+}
+
 struct Track: Identifiable, Codable, Hashable {
     let artist: String
     let title: String
@@ -66,12 +79,17 @@ struct HistoryItem: Codable {
 struct iTunesSearchResponse: Codable {
     let results: [iTunesSearchResult]
 }
-struct iTunesSearchResult: Codable, Identifiable {
+struct iTunesSearchResult: Codable, Identifiable, Equatable {
+    static func == (lhs: iTunesSearchResult, rhs: iTunesSearchResult) -> Bool {
+        lhs.id == rhs.id
+    }
+    
     // Fields for both albums and tracks
     let wrapperType: String
     let artistName: String
     let artistId: Int?
     let artistLinkUrl: URL?
+    let amgArtistId: Int?
     let collectionId: Int?
     let collectionName: String?
     let artworkUrl100: URL?
