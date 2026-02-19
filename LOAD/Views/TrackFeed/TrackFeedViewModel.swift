@@ -20,40 +20,29 @@ class TrackFeedViewModel {
     var sortedTracks: [iTunesSearchResult] {
         switch sortOption {
         case .date:
-            return tracks.sorted { lhs, rhs in
-                let d1 = lhs.releaseDate
-                let d2 = rhs.releaseDate
-                switch (d1, d2) {
-                case let (l?, r?):
-                    return isAscending ? l < r : l > r
-                case (nil, nil):
-                    return false
-                case (nil, _):
-                    return !isAscending
-                case (_, nil):
-                    return isAscending
-                }
-            }
+            return tracks.sorted(by: { lhs, rhs in
+                return isAscending ? lhs.releaseDate < rhs.releaseDate : lhs.releaseDate > rhs.releaseDate
+            })
         case .title:
-            return tracks.sorted { lhs, rhs in
+            return tracks.sorted(by: { lhs, rhs in
                 let t1 = lhs.trackName ?? ""
                 let t2 = rhs.trackName ?? ""
                 let result = t1.localizedCaseInsensitiveCompare(t2)
                 return isAscending ? result == .orderedAscending : result == .orderedDescending
-            }
+            })
         case .artist:
-            return tracks.sorted { lhs, rhs in
+            return tracks.sorted(by: { lhs, rhs in
                 let a1 = lhs.artistName
                 let a2 = rhs.artistName
                 let result = a1.localizedCaseInsensitiveCompare(a2)
                 return isAscending ? result == .orderedAscending : result == .orderedDescending
-            }
+            })
         case .duration:
-            return tracks.sorted {
+            return tracks.sorted(by: {
                 let d1 = $0.trackTimeMillis ?? 0
                 let d2 = $1.trackTimeMillis ?? 0
                 return isAscending ? d1 < d2 : d1 > d2
-            }
+            })
         }
     }
     

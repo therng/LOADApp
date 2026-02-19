@@ -7,6 +7,7 @@ struct HistoryDetailView: View {
     
     @Environment(AudioPlayerService.self) var player
     @State private var searchResponse: SearchResponse?
+    @State private var metadata: ITunesTrackMetadata?
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var safariURLItem: SafariURLItem?
@@ -188,10 +189,10 @@ private enum HistorySortOption: String, CaseIterable, Identifiable {
 
     var systemIcon: String {
         switch self {
-        case .relevance: return "star"
+        case .relevance: return "calendar"
         case .title: return "music.note"
-        case .artist: return "music.microphone"
-        case .duration: return "clock"
+        case .artist: return "person.fill"
+        case .duration: return "clock.fill"
         }
     }
 

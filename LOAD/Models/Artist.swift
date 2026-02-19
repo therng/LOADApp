@@ -1,27 +1,43 @@
 import Foundation
 
-// Based on iTunes Search API (entity=musicArtist) with app-specific extensions.
 struct Artist: Identifiable, Codable, Hashable {
-    // iTunes Fields
     let artistId: Int
-    let artistName: String
-    let artistLinkUrl: URL?
-    let primaryGenreName: String?
-    let wrapperType: String
-
-    // App-specific Extension Fields
+    var artistName: String
+    var artistLinkURL: URL
+    var wrapperType: String
+    var isPinned: Bool
     var artistImage: URL?
-    var isPinned: Bool = false
-    var sortOrder: Int = 0
-    var followedAt: Date = Date()
 
     var id: Int { artistId }
 
-    static func == (lhs: Artist, rhs: Artist) -> Bool {
-        lhs.id == rhs.id
+    init(
+        artistId: Int,
+        artistName: String,
+        artistLinkURL: URL,
+        wrapperType: String,
+        isPinned: Bool = false,
+        artistImage: URL? = nil
+    ) {
+        self.artistId = artistId
+        self.artistName = artistName
+        self.artistLinkURL = artistLinkURL
+        self.wrapperType = wrapperType
+        self.isPinned = isPinned
+        self.artistImage = artistImage
     }
 
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
+    init?(result: iTunesSearchResult) {
+        guard let artistId = result.artistId,
+              let artistLinkURL = result.artistLinkURL else {
+            return nil
+        }
+        self.init(
+            artistId: artistId,
+            artistName: result.artistName,
+            artistLinkURL: artistLinkURL,
+            wrapperType: result.wrapperType,
+            isPinned: false,
+            artistImage: nil
+        )
     }
 }

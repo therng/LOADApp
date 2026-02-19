@@ -1,43 +1,43 @@
 import SwiftUI
 
-
 private struct AlbumGridItemView: View {
     let album: iTunesSearchResult
     
     var body: some View {
         NavigationLink(destination: AlbumDetailView(album: album)) {
-            VStack {
-                AsyncImage(url: album.highResArtworkURL) { image in
+            VStack(alignment: .leading, spacing: 8) {
+                AsyncImage(url: album.artworkURL) { image in
                     image
                         .resizable()
-                        .aspectRatio(contentMode: .fit)
+                        .aspectRatio(contentMode: .fill)
                 } placeholder: {
                     Rectangle()
                         .fill(Color(.systemGray5))
                         .overlay {
                             Image(systemName: "music.note")
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                                 .font(.largeTitle)
                         }
                 }
-                .aspectRatio(1, contentMode: .fill)
-                .clipShape(.rect(cornerRadius: 8))
-                .shadow(radius: 3)
+                .aspectRatio(1, contentMode: .fit)
+                .clipShape(.rect(cornerRadius: 12))
+                .shadow(radius: 4, y: 2)
                 
-                Text(album.collectionName ?? "Untitled Album")
-                    .font(.system(size: 13, weight: .regular, design:.default))
-                    .lineLimit(1)
-                    .multilineTextAlignment(.center)
-                
-                Text(album.releaseDate.map { APIService.yearFormatter.string(from: $0) } ?? "—")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(album.collectionName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    
+                    Text(APIService.yearFormatter.string(from: album.releaseDate))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
+        .buttonStyle(.plain)
     }
 }
-
 
 struct ArtistDetailView: View {
     let artistId: Int
@@ -46,11 +46,19 @@ struct ArtistDetailView: View {
     @State private var albums: [iTunesSearchResult] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var isGridView = true
     
     // Grid layout configuration
     private let columns: [GridItem] = [
-        GridItem(.adaptive(minimum: 170))
+        GridItem(.adaptive(minimum: 160), spacing: 20)
     ]
+    
+    private static let longDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long // e.g. February 16, 2026
+        formatter.timeStyle = .none
+        return formatter
+    }()
 
     var body: some View {
         ZStack {
@@ -61,6 +69,16 @@ struct ArtistDetailView: View {
         }
         .navigationTitle(artistName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { isGridView.toggle() }
+                } label: {
+                    Image(systemName: isGridView ? "list.bullet" : "square.grid.2x2")
+                }
+                .accessibilityLabel(isGridView ? "Show as list" : "Show as grid")
+            }
+        }
     }
     
     @ViewBuilder
@@ -72,13 +90,17 @@ struct ArtistDetailView: View {
         } else if albums.isEmpty {
             ContentUnavailableView("No Albums Found", systemImage: "music.mic", description: Text("There were no albums found for \(artistName) on the iTunes Store."))
         } else {
-            albumGridView
+            if isGridView {
+                albumGridView
+            } else {
+                albumListView
+            }
         }
     }
     
     private var albumGridView: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 20) {
+            LazyVGrid(columns: columns, spacing: 24) {
                 ForEach(albums) { album in
                     AlbumGridItemView(album: album)
                 }
@@ -90,14 +112,77 @@ struct ArtistDetailView: View {
         }
     }
     
+    private var albumListView: some View {
+        List(albums) { album in
+            NavigationLink(destination: AlbumDetailView(album: album)) {
+                HStack(alignment: .top, spacing: 16) {
+                    AsyncImage(url: album.artworkURL) { image in
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Rectangle()
+                            .fill(Color(.systemGray5))
+                            .overlay {
+                                Image(systemName: "music.note")
+                                    .foregroundStyle(.secondary)
+                            }
+                    }
+                    .frame(width: 80, height: 80)
+                    .clipShape(.rect(cornerRadius: 8))
+                    .shadow(radius: 2)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        // Line 1: Title
+                        Text(album.collectionName)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        
+                        // Line 2: Artist
+                        Text(album.artistName)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        
+                        // Line 3: Copyright
+                        if !album.copyright.isEmpty {
+                            Text(album.copyright)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary.opacity(0.8))
+                                .lineLimit(1)
+                        }
+                        
+                        // Line 4: Track Count + Release Date
+                        Text("\(album.trackCount ?? 0) tracks • \(formatDate(album.releaseDate))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.vertical, 2)
+                }
+                .padding(.vertical, 4)
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        }
+        .listStyle(.plain)
+        .refreshable {
+            await loadArtistAlbums()
+        }
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        Self.longDateFormatter.string(from: date)
+    }
+    
     private func loadArtistAlbums() async {
         do {
             isLoading = true
             let searchResults = try await APIService.shared.fetchArtistAlbums(artistId: artistId)
             
-            // FIX: Filter out duplicate results by ID. iTunes API results often contain duplicate 
-            // collection IDs for different versions of the same album/single. 
-            // LazyVGrid crashes immediately if duplicate IDs are passed to ForEach.
+            // Filter out duplicate results by ID to avoid ForEach/List crashes
             var uniqueResults = [iTunesSearchResult]()
             var seenIds = Set<Int>()
             for result in searchResults {
@@ -116,7 +201,7 @@ struct ArtistDetailView: View {
 }
 
 #Preview{
-    NavigationStack{
+    NavigationView {
         ArtistDetailView(artistId: 481465908, artistName: "")
             .environment(AudioPlayerService.shared)
     }

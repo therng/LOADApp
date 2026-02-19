@@ -24,7 +24,7 @@ class SearchViewModel {
         Task {
             do {
                 let (searchId, tracks) = try await APIService.shared.search(query: q)
-                let response = SearchResponse(search_id: searchId, results: tracks, query: q, count: tracks.count)
+                let response = SearchResponse(searchId: searchId, results: tracks, query: q, count: tracks.count)
                 self.presentedResponse = response
                 self.shouldNavigateToResult = true
                 

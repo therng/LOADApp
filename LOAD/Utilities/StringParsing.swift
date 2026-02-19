@@ -1,6 +1,19 @@
 import Foundation
 
 extension String {
+    func parseArtists() -> [String] {
+        let separators = [" & ", " feat. ", " vs. ", " x ", " and ", " with ", " presents ", ", ", " ft. "," feat ", " pres. " ]
+        var tempString = self.replacingOccurrences(of: ",", with: ", ")
+        
+        for separator in separators {
+            tempString = tempString.replacingOccurrences(of: separator, with: ", ", options: .caseInsensitive)
+        }
+        
+        return tempString.components(separatedBy: ", ")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
     func parseTitleAndMix() -> (title: String, mix: String?) {
         // 1. Initial cleaning of unwanted phrases and whitespace.
         var cleanTitle = self.trimmingCharacters(in: .whitespacesAndNewlines)

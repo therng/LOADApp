@@ -64,9 +64,9 @@ struct HistoryView: View {
 
     private var historyList: some View {
         List {
-            ForEach(historyItems, id: \.search_id) { item in
+            ForEach(historyItems) { item in
                 NavigationLink {
-                    HistoryDetailView(searchId: item.search_id)
+                    HistoryDetailView(searchId: item.searchId)
                 } label: {
                     HStack {
                         Text(item.query)
@@ -145,8 +145,8 @@ struct HistoryView: View {
     private func deleteItem(_ item: HistoryItem) {
         Task {
             do {
-                _ = try await APIService.shared.deleteHistoryItem(with: item.search_id)
-                historyItems.removeAll { $0.search_id == item.search_id }
+                _ = try await APIService.shared.deleteHistoryItem(with: item.searchId)
+                historyItems.removeAll { $0.searchId == item.searchId }
             } catch {
                 errorMessage = error.localizedDescription
                 showErrorAlert = true

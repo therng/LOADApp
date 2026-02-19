@@ -3,7 +3,7 @@ import UIKit
 
 struct SearchTabView: View {
     @State private var searchModel = SearchViewModel()
-
+    @Environment(AppNavigationManager.self) var navigationManager
     
     var body: some View {
         NavigationStack {
@@ -24,8 +24,8 @@ struct SearchTabView: View {
                 }
             }
             .navigationDestination(isPresented: $searchModel.shouldNavigateToResult) {
-                if let response = searchModel.presentedResponse {
-                    HistoryDetailView(searchId: response.search_id, preloadedResponse: response)
+                if searchModel.shouldNavigateToResult, let response = searchModel.presentedResponse {
+                    HistoryDetailView(searchId: response.searchId, preloadedResponse: response)
                 }
             }
             .searchable(
@@ -35,6 +35,20 @@ struct SearchTabView: View {
             )
             .onSubmit(of: .search) {
                 searchModel.performSearch()
+            }
+            .onChange(of: navigationManager.pendingSearchQuery) { _, newQuery in
+                if let query = newQuery, !query.isEmpty {
+                    searchModel.searchText = query
+                    searchModel.performSearch()
+                    navigationManager.pendingSearchQuery = nil
+                }
+            }
+            .onAppear {
+                if let query = navigationManager.pendingSearchQuery, !query.isEmpty {
+                    searchModel.searchText = query
+                    searchModel.performSearch()
+                    navigationManager.pendingSearchQuery = nil
+                }
             }
         }
     }

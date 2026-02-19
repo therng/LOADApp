@@ -54,18 +54,10 @@ class ArtistStorageService {
     private func follow(artistName: String) async {
         do {
             guard let result = try await APIService.shared.searchForArtist(artistName) else { return }
-            
-            var newArtist = Artist(
-                artistId: result.artistId ?? artistName.hashValue,
-                artistName: result.artistName,
-                artistLinkUrl: result.artistLinkUrl,
-                primaryGenreName: result.primaryGenreName,
-                wrapperType: "artist"
-            )
-            
-            // Fetch artist image if link is available
-            if let link = newArtist.artistLinkUrl,
-               let imageURL = await APIService.shared.fetchArtistImage(from: link) {
+            guard var newArtist = Artist(result: result) else { return }
+
+            // Fetch artist image from the artist link on the search result
+            if let imageURL = await APIService.shared.fetchArtistImage(from: newArtist.artistLinkURL) {
                 newArtist.artistImage = imageURL
             }
             
@@ -95,3 +87,4 @@ class ArtistStorageService {
         }
     }
 }
+

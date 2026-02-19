@@ -4,6 +4,8 @@ struct AlbumDetailView: View {
     let album: iTunesSearchResult
     
     @Environment(AudioPlayerService.self) var player
+    @Environment(AppNavigationManager.self) var navigationManager
+    @Environment(\.colorScheme) private var colorScheme
     @State private var tracks: [iTunesSearchResult] = []
     @State private var playableTracks: [Track] = []
     @State private var isLoading = true
@@ -21,26 +23,6 @@ struct AlbumDetailView: View {
     var body: some View {
         mainContent
             .background(backgroundView)
-            .colorScheme(.dark) // Ensures text is visible on dark background
-            .overlay(alignment: .bottom) {
-                if showCopiedBanner {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text("Copied to Clipboard")
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding()
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                    .shadow(radius: 5)
-                    .padding(.bottom, 50)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .navigationTitle(album.collectionName ?? "Album")
-            .navigationBarTitleDisplayMode(.inline)
             .task {
                 await loadTracks()
             }
@@ -88,7 +70,7 @@ struct AlbumDetailView: View {
     private func trackRowView(for item: iTunesSearchResult) -> some View {
         TrackRow(
             track: makeTrack(from: item),
-            isDimmed: item.previewUrl == nil,
+            isDimmed: item.previewURL == nil,
             onPlay: {
                 if player.currentTrack?.key == String(item.trackId ?? 0) {
                     player.togglePlayPause()
@@ -101,32 +83,65 @@ struct AlbumDetailView: View {
             }
         )
         .listRowBackground(Rectangle().fill(.clear))
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button {
+                let query = "\(item.artistName) - \(item.trackName ?? "")"
+                navigationManager.triggerSearch(query: query)
+            } label: {
+                Label("Download", systemImage: "arrow.down")
+            }
+            .tint(.blue)
+        }
     }
     
     private var backgroundView: some View {
-        ZStack {
-            if let url = album.highResArtworkURL {
-                AsyncImage(url: url) { image in
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .blur(radius: 35, opaque: false)
-                } placeholder: {
-                    Color.clear
+        GeometryReader { proxy in
+            ZStack {
+                if let url = album.artworkURL {
+                    AsyncImage(url: url) { image in
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .clipped()
+                            .overlay(overlayGradient)
+                            .blur(radius: 30)
+                    } placeholder: {
+                        Color(.systemBackground)
+                    }
+                } else {
+                    Color(.systemBackground)
+                }
+
+                // Subtle bottom overlay to improve contrast for content near the bottom
+                VStack {
+                    Spacer()
+                    Rectangle()
+                        .fill(colorScheme == .dark ? Color.black.opacity(0.25) : Color.white.opacity(0.25))
+                        .frame(height: 120)
+                        .blur(radius: 10)
+                        .allowsHitTesting(false)
                 }
             }
-            LinearGradient(
-                colors: [.black.opacity(0.6), .black.opacity(0.2), .black.opacity(0.6)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            .ignoresSafeArea()
         }
-        .ignoresSafeArea()
+    }
+    
+    private var overlayGradient: some View {
+        LinearGradient(
+            gradient: Gradient(stops: [
+                .init(color: colorScheme == .dark ? Color.black.opacity(0.55) : Color.white.opacity(0.35), location: 0.0),
+                .init(color: Color.clear, location: 0.5),
+                .init(color: colorScheme == .dark ? Color.black.opacity(0.65) : Color.white.opacity(0.45), location: 1.0),
+            ]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
     
     private var albumHeader: some View {
         VStack(spacing: 6) {
-            AsyncImage(url: album.highResArtworkURL) { image in
+            AsyncImage(url: album.artworkURL) { image in
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -135,18 +150,18 @@ struct AlbumDetailView: View {
                     .fill(Color(uiColor: .systemGray5))
                     .overlay {
                         Image(systemName: "music.note")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                             .font(.largeTitle)
                     }
             }
 //            .frame(width: 300, height: 300)
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
             .shadow(radius: 15, y: 5)
             .padding(.bottom, 16)
 
             
             
-            Text(album.collectionName ?? "Untitled Album")
+            Text(album.collectionName)
                 .font(.title3.weight(.bold))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 20)
@@ -154,7 +169,7 @@ struct AlbumDetailView: View {
 
             Text(album.artistName)
                 .font(.body)
-                .foregroundStyle(.pink)
+                .foregroundStyle(Color.accent)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
                 .lineLimit(1)
@@ -178,8 +193,8 @@ struct AlbumDetailView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             
-            if let copyright = album.copyright {
-                Text(copyright)
+            if !albumCopyright.isEmpty {
+                Text(albumCopyright)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
@@ -195,19 +210,16 @@ struct AlbumDetailView: View {
     
     private var metadataString: String {
         var parts: [String] = []
-        if let genre = album.primaryGenreName, !genre.isEmpty {
-            parts.append(genre)
+        if !album.primaryGenreName.isEmpty {
+            parts.append(album.primaryGenreName)
         }
-        if let releaseDate = album.releaseDate {
-            let year = String(Calendar.current.component(.year, from: releaseDate))
-            parts.append(year)
-        }
-        return parts.joined(separator: " • ")
+        let year = String(Calendar.current.component(.year, from: album.releaseDate))
+        parts.append(year)
+        return parts.isEmpty ? "—" : parts.joined(separator: " • ")
     }
     
     private var formattedReleaseDate: String {
-        guard let releaseDate = album.releaseDate else { return "Unknown Release Date" }
-        return Self.fullDateFormatter.string(from: releaseDate)
+        Self.fullDateFormatter.string(from: album.releaseDate)
     }
     
     private var formattedTotalDuration: String {
@@ -220,6 +232,10 @@ struct AlbumDetailView: View {
         formatter.maximumUnitCount = 2
         
         return formatter.string(from: totalSeconds) ?? ""
+    }
+
+    private var albumCopyright: String {
+        album.copyright
     }
 
     private func copyToClipboard(track: iTunesSearchResult) {
@@ -240,15 +256,9 @@ struct AlbumDetailView: View {
     }
     
     private func loadTracks() async {
-        guard let collectionId = album.collectionId else {
-            errorMessage = "This album could not be found."
-            isLoading = false
-            return
-        }
-        
         isLoading = true
         do {
-            let searchResults = try await APIService.shared.fetchTracksForAlbum(collectionId: collectionId)
+            let searchResults = try await APIService.shared.fetchTracksForAlbum(collectionId: album.collectionId)
             self.tracks = searchResults
             self.playableTracks = searchResults.compactMap(makeTrack)
             self.errorMessage = nil
@@ -264,9 +274,10 @@ struct AlbumDetailView: View {
             title: item.trackName ?? "Unknown",
             duration: (item.trackTimeMillis ?? 0) / 1000,
             key: String(item.trackId ?? 0),
-            artworkURL: item.highResArtworkURL,
-            releaseDate: item.releaseDate.map { APIService.yearFormatter.string(from: $0) },
-            customStreamURL: item.previewUrl
+            localURL: nil,
+            artworkURL: item.artworkURL,
+            releaseDate: APIService.yearFormatter.string(from: item.releaseDate),
+            customStreamURL: item.previewURL
         )
     }
     

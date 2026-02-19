@@ -1,201 +1,124 @@
 import Foundation
-import SwiftUI
 
-/// A robust, actor-based service for managing downloaded tracks and their persistence.
-/// Handles file system operations, metadata storage, auto-saving, and conflict resolution.
 @MainActor
-@Observable
 final class TrackStorageService {
     static let shared = TrackStorageService()
     
-    // Publicly available list of saved tracks
-    private(set) var savedTracks: [Track] = []
-    
     private let fileManager = FileManager.default
-    private let metadataFileName = "saved_tracks.json"
     
-    // Serial queue for file operations to ensure thread safety
-    @ObservationIgnored private let ioQueue = DispatchQueue(label: "com.loadapp.trackstorage.io", qos: .utility)
-    
-    private init() {
-        loadTracks()
+    // The directory where tracks are saved
+    private var documentsDirectory: URL {
+        fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
+    
+    private init() {}
     
     // MARK: - Public API
     
-    /// Checks if a track is already downloaded/saved
-    func isTrackSaved(_ track: Track) -> Bool {
-        savedTracks.contains { $0.id == track.id }
-    }
-    
-    /// Saves a track by downloading its audio file and persisting its metadata.
+    /// Downloads and saves a track to the app's documents directory.
+    ///
     /// - Parameters:
-    ///   - track: The track to save.
-    ///   - customFilename: Optional custom filename (without extension).
-    ///   - onProgress: Optional callback for download progress.
-    func saveTrack(_ track: Track, customFilename: String? = nil, onProgress: ((Double) -> Void)? = nil) async throws -> URL {
-        // 1. Determine destination URL with conflict resolution
-        let filename = customFilename ?? track.title
-        let safeFilename = sanitizeFilename(filename)
-        let destinationURL = try resolveFileConflict(for: safeFilename, extension: "mp3")
+    ///   - track: The track object to download.
+    ///   - customFilename: Optional custom filename (without extension). If nil, the track title is used.
+    /// - Returns: The file URL of the saved track.
+    func saveTrack(_ track: Track, customFilename: String? = nil) async throws -> URL {
+        // 1. Determine the filename
+        let baseName = customFilename ?? sanitizedFilename(track.title)
+        let fileName = baseName.hasSuffix(".mp3") ? baseName : "\(baseName).mp3"
+        let destinationURL = documentsDirectory.appendingPathComponent(fileName)
         
-        // 2. Stream download to temporary file (memory efficient)
+        // 2. Check if file already exists
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            #if DEBUG
+            print("📂 Track already exists: \(destinationURL.lastPathComponent)")
+            #endif
+            return destinationURL
+        }
+        
+        // 3. Download the file
+        // Note: URLSession.shared.download returns control as soon as headers are received?
+        // No, it waits for the body. This is async and won't block MainActor.
         let (tempURL, response) = try await URLSession.shared.download(from: track.download)
-
-        guard let http = response as? HTTPURLResponse,
-              (200...299).contains(http.statusCode) else {
+        
+        // 4. Validate Response
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
             throw URLError(.badServerResponse)
         }
-
-        // 3. Move downloaded file atomically to destination
-        try await moveDownloadedFile(from: tempURL, to: destinationURL)
-
-        // 4. Ensure file is fully written and stable
-        try await ensureFileIsStable(at: destinationURL)
-
-        // 5. Update Metadata
-        var savedTrack = track
-        savedTrack.localURL = destinationURL
         
-        updateTrackList(with: savedTrack)
-        Haptics.notify(.success)
+        // 5. Move file to permanent location
+        // fileManager.moveItem is synchronous, but moving a file on the same volume is fast.
+        do {
+            // Ensure destination doesn't exist (race condition check)
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+            try fileManager.moveItem(at: tempURL, to: destinationURL)
+        } catch {
+            throw error
+        }
+        
+        // 6. Fetch Metadata & Write ID3 Tags
+        // We do this after moving so we have the file in place.
+        let trackWithMetadata = await APIService.shared.fetchArtwork(for: track)
+        do {
+
+           
+            print("🏷️ ID3 Tags written for: \(trackWithMetadata.title)")
+
+
+        }
+        
+        #if DEBUG
+        print("✅ Saved track to: \(destinationURL.path)")
+        #endif
+        
         return destinationURL
     }
     
-    func deleteTrack(_ track: Track) {
-        guard let index = savedTracks.firstIndex(where: { $0.id == track.id }) else { return }
-        let trackToDelete = savedTracks[index]
+    /// Returns the full file URL for a given filename.
+    func fileURL(for filename: String) -> URL {
+        let fileName = filename.hasSuffix(".mp3") ? filename : "\(filename).mp3"
+        return documentsDirectory.appendingPathComponent(fileName)
+    }
+    
+    /// Checks if a track is already saved locally.
+    func isTrackSaved(filename: String) -> Bool {
+        let fileName = filename.hasSuffix(".mp3") ? filename : "\(filename).mp3"
+        let url = documentsDirectory.appendingPathComponent(fileName)
+        return fileManager.fileExists(atPath: url.path)
+    }
+    
+    /// Deletes a saved track by filename.
+    func deleteTrack(filename: String) throws {
+        let fileName = filename.hasSuffix(".mp3") ? filename : "\(filename).mp3"
+        let url = documentsDirectory.appendingPathComponent(fileName)
         
-        // Remove from list immediately (optimistic UI)
-        savedTracks.remove(at: index)
-        saveTracksToDisk()
-        
-        // Delete file asynchronously
-        Task(priority: .utility) {
-            if let url = trackToDelete.localURL {
-                try? FileManager.default.removeItem(at: url)
-            }
+        if fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
         }
     }
     
-    // MARK: - Internal Logic
-    
-    private func updateTrackList(with track: Track) {
-        if let index = savedTracks.firstIndex(where: { $0.id == track.id }) {
-            // Conflict Resolution: Update existing entry
-            savedTracks[index] = track
-        } else {
-            savedTracks.append(track)
-        }
-        
-        // Auto-Save metadata
-        saveTracksToDisk()
-    }
-    
-    private func saveTracksToDisk() {
-        let tracks = savedTracks
-        let filename = metadataFileName
-        // Prepare the URL on the current actor before dispatching to background
-        let url = getDocumentsDirectory().appendingPathComponent(filename)
-        
-        ioQueue.async {
-            do {
-                let data = try JSONEncoder().encode(tracks)
-                try data.write(to: url, options: [.atomic])
-            } catch {
-                print("Error saving tracks metadata: \(error)")
-            }
+    /// Returns a list of all saved track URLs.
+    func getSavedTracks() -> [URL] {
+        do {
+            let urls = try fileManager.contentsOfDirectory(at: documentsDirectory, includingPropertiesForKeys: nil)
+            return urls.filter { $0.pathExtension == "mp3" }
+        } catch {
+            print("Error listing tracks: \(error)")
+            return []
         }
     }
     
-    private func loadTracks() {
-        let filename = metadataFileName
-        let url = getDocumentsDirectory().appendingPathComponent(filename)
-
-        ioQueue.async { [weak self] in
-            guard let self = self else { return }
-            guard let data = try? Data(contentsOf: url),
-                  let tracks = try? JSONDecoder().decode([Track].self, from: data) else {
-                return
-            }
-            
-            // Validate local files exist
-            let validTracks = tracks.map { track -> Track in
-                var t = track
-                // Ensure localURL is relative to current sandbox (container UUID changes on reinstall/build)
-                if let relativePath = t.localURL?.lastPathComponent {
-                    t.localURL = self.getDocumentsDirectory().appendingPathComponent(relativePath)
-                }
-                return t
-            }
-            
-            Task { @MainActor in
-                self.savedTracks = validTracks
-            }
-        }
-    }
+    // MARK: - Helpers
     
-    // MARK: - Helper Methods
-    
-    // Marked nonisolated to allow calling from background queues without main actor constraints
-    nonisolated private func getDocumentsDirectory() -> URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    }
-    
-    private func sanitizeFilename(_ name: String) -> String {
-        name.components(separatedBy: .init(charactersIn: "/\\?%*|\"<>:")).joined(separator: "_")
-    }
-    
-    /// Resolves filename conflicts by appending a number if the file already exists.
-    /// e.g. "Song.mp3" -> "Song 1.mp3"
-    private func resolveFileConflict(for filename: String, extension ext: String) throws -> URL {
-        let docDir = getDocumentsDirectory()
-        var url = docDir.appendingPathComponent("\(filename).\(ext)")
-        var counter = 1
-        
-        while fileManager.fileExists(atPath: url.path) {
-            url = docDir.appendingPathComponent("\(filename) \(counter).\(ext)")
-            counter += 1
-        }
-        
-        return url
-    }
-    
-    private func moveDownloadedFile(from tempURL: URL, to destinationURL: URL) async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            ioQueue.async {
-                do {
-                    if FileManager.default.fileExists(atPath: destinationURL.path) {
-                        try FileManager.default.removeItem(at: destinationURL)
-                    }
-                    try FileManager.default.moveItem(at: tempURL, to: destinationURL)
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
-    }
-    
-    /// Waits until file size is stable across two checks to avoid race conditions.
-    private func ensureFileIsStable(at url: URL) async throws {
-        var previousSize: UInt64 = 0
-        var attempts = 0
-
-        while attempts < 5 {
-            try await Task.sleep(nanoseconds: 150_000_000)
-
-            let attributes = try fileManager.attributesOfItem(atPath: url.path)
-            let currentSize = attributes[.size] as? UInt64 ?? 0
-
-            if currentSize > 0 && currentSize == previousSize {
-                return
-            }
-
-            previousSize = currentSize
-            attempts += 1
-        }
-
-        throw URLError(.cannotWriteToFile)
+    private func sanitizedFilename(_ name: String) -> String {
+        let invalid = CharacterSet(charactersIn: "/\\?%*|\"<>:")
+        return name
+            .components(separatedBy: invalid)
+            .joined()
+            .replacingOccurrences(of: "  ", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
