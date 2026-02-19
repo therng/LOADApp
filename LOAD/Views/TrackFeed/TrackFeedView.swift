@@ -98,7 +98,7 @@ struct TrackFeedView: View {
                 key: String(item.trackId ?? 0),
                 localURL: nil,
                 artworkURL: item.artworkURL,
-                releaseDate: APIService.yearFormatter.string(from: item.releaseDate),
+                releaseDate: item.releaseDate.map { APIService.yearFormatter.string(from: $0) },
                 customStreamURL: item.previewURL
             )
         }

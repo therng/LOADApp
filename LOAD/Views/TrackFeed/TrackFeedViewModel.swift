@@ -21,7 +21,7 @@ class TrackFeedViewModel {
         switch sortOption {
         case .date:
             return tracks.sorted(by: { lhs, rhs in
-                return isAscending ? lhs.releaseDate < rhs.releaseDate : lhs.releaseDate > rhs.releaseDate
+                return isAscending ? (lhs.releaseDate ?? .distantPast) < (rhs.releaseDate ?? .distantPast) : (lhs.releaseDate ?? .distantPast) > (rhs.releaseDate ?? .distantPast)
             })
         case .title:
             return tracks.sorted(by: { lhs, rhs in

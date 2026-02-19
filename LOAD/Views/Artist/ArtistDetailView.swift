@@ -24,12 +24,11 @@ private struct AlbumGridItemView: View {
                 .shadow(radius: 4, y: 2)
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(album.collectionName)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.primary)
+                                Text(album.collectionName ?? "Untitled Album")
+                                    .font(.system(size: 14, weight: .semibold))                        .foregroundStyle(.primary)
                         .lineLimit(1)
                     
-                    Text(APIService.yearFormatter.string(from: album.releaseDate))
+                    Text(APIService.yearFormatter.string(from: album.releaseDate ?? Date()))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -134,7 +133,7 @@ struct ArtistDetailView: View {
                     
                     VStack(alignment: .leading, spacing: 2) {
                         // Line 1: Title
-                        Text(album.collectionName)
+                        Text(album.collectionName ?? "Untitled Album")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
@@ -146,8 +145,8 @@ struct ArtistDetailView: View {
                             .lineLimit(1)
                         
                         // Line 3: Copyright
-                        if !album.copyright.isEmpty {
-                            Text(album.copyright)
+                        if let copyright = album.copyright, !copyright.isEmpty {
+                            Text(copyright)
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary.opacity(0.8))
                                 .lineLimit(1)
@@ -173,8 +172,8 @@ struct ArtistDetailView: View {
         }
     }
     
-    private func formatDate(_ date: Date) -> String {
-        Self.longDateFormatter.string(from: date)
+    private func formatDate(_ date: Date?) -> String {
+        date.map { Self.longDateFormatter.string(from: $0) } ?? "—"
     }
     
     private func loadArtistAlbums() async {

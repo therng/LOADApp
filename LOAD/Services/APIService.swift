@@ -255,6 +255,11 @@ private extension APIService {
 
             do {
                 return try Self.apiDecoder.decode(T.self, from: data)
+            } catch let decodingError as DecodingError {
+                #if DEBUG
+                print("❌ Decoding Error: \(decodingError)")
+                #endif
+                throw APIError.decodingError
             } catch {
                 throw APIError.decodingError
             }
@@ -272,7 +277,7 @@ extension APIService {
                      parsedArtists: [String]) async -> (
                         artworkURL: URL,
                         artistName: String,
-                        collectionId: Int,
+                        collectionId: Int?,
                         collectionName: String?,
                         collectionViewURL: URL?,
                         artworkURL100: URL?,
@@ -293,11 +298,11 @@ extension APIService {
         }
 
         guard let result = response.results
-            .filter({ $0.collectionName.localizedCaseInsensitiveContains(parsedTitle.title) })
-            .sorted(by: { ($0.releaseDate) < ($1.releaseDate) })
+            .filter({ ($0.collectionName ?? "").localizedCaseInsensitiveContains(parsedTitle.title) })
+            .sorted(by: { ($0.releaseDate ?? .distantPast) < ($1.releaseDate ?? .distantPast) })
             .first else { return nil }
 
-        guard let highResURL = URL(string: result.artworkURL100.absoluteString.replacingOccurrences(of: "100x100", with: "1000x1000")) else { return nil }
+        guard let highResURL = URL(string: result.artworkURL100?.absoluteString.replacingOccurrences(of: "100x100", with: "1000x1000") ?? "") else { return nil }
 
         return (
                 artworkURL: highResURL,
@@ -382,12 +387,22 @@ extension APIService {
         }
     }
 
-    func searchForArtist(_ name: String) async throws -> iTunesSearchResult? {
+    func searchForArtist(_ name: String, limit: Int = 1) async throws -> iTunesSearchResult? {
         let url = try iTunesSearchURL(term: name, entity: "musicArtist", extra: [
-            URLQueryItem(name: "attribute", value: "artistTerm")
+            URLQueryItem(name: "attribute", value: "artistTerm"),
+            URLQueryItem(name: "limit", value: String(limit))
         ])
         let response: iTunesSearchResponse = try await fetchITunesData(url: url)
         return response.results.first
+    }
+
+    func searchForArtists(_ name: String, limit: Int = 5) async throws -> [iTunesSearchResult] {
+        let url = try iTunesSearchURL(term: name, entity: "musicArtist", extra: [
+            URLQueryItem(name: "attribute", value: "artistTerm"),
+            URLQueryItem(name: "limit", value: String(limit))
+        ])
+        let response: iTunesSearchResponse = try await fetchITunesData(url: url)
+        return response.results
     }
 
     func fetchArtistAlbums(artistId: Int) async throws -> [iTunesSearchResult] {
@@ -396,12 +411,12 @@ extension APIService {
         return response.results
             .dropFirst()
             .filter {
-                let name = ($0.collectionName).lowercased()
+                let name = ($0.collectionName ?? "").lowercased()
                 return !name.contains("radio") && !name.contains("episode")
                     && !name.contains("mixed") && !name.contains("podcast")
                     && ($0.trackCount ?? 0) > 0
             }
-            .sorted { $0.releaseDate > $1.releaseDate }
+            .sorted { ($0.releaseDate ?? .distantPast) > ($1.releaseDate ?? .distantPast) }
     }
 
     func fetchTracksForAlbum(collectionId: Int) async throws -> [iTunesSearchResult] {

@@ -4,7 +4,8 @@ struct Artist: Identifiable, Codable, Hashable {
     let artistId: Int
     var artistName: String
     var artistLinkURL: URL
-    var wrapperType: String
+    var primaryGenreName: String?
+    var primaryGenreId: Int?
     var isPinned: Bool
     var artistImage: URL?
 
@@ -14,14 +15,16 @@ struct Artist: Identifiable, Codable, Hashable {
         artistId: Int,
         artistName: String,
         artistLinkURL: URL,
-        wrapperType: String,
+        primaryGenreName: String?,
+        primaryGenreId: Int?,
         isPinned: Bool = false,
         artistImage: URL? = nil
     ) {
         self.artistId = artistId
         self.artistName = artistName
         self.artistLinkURL = artistLinkURL
-        self.wrapperType = wrapperType
+        self.primaryGenreName = primaryGenreName
+        self.primaryGenreId = primaryGenreId
         self.isPinned = isPinned
         self.artistImage = artistImage
     }
@@ -35,7 +38,8 @@ struct Artist: Identifiable, Codable, Hashable {
             artistId: artistId,
             artistName: result.artistName,
             artistLinkURL: artistLinkURL,
-            wrapperType: result.wrapperType,
+            primaryGenreName: result.primaryGenreName,
+            primaryGenreId: result.primaryGenreId,
             isPinned: false,
             artistImage: nil
         )

@@ -155,14 +155,14 @@ struct iTunesSearchResponse: Codable {
 
 struct iTunesSearchResult: Codable, Identifiable, Equatable {
     let wrapperType: String
+    let artistType: String?
     let artistName: String
-    let collectionId: Int
-    let collectionName: String
-    let collectionViewURL: URL
-    let artworkURL100: URL
-    let releaseDate: Date
-    let primaryGenreName: String
-    let copyright: String
+    let collectionId: Int?
+    let collectionName: String?
+    let collectionViewURL: URL?
+    let artworkURL100: URL?
+    let releaseDate: Date?
+    let copyright: String?
   
     // Track-specific
     let artistId: Int?
@@ -177,15 +177,20 @@ struct iTunesSearchResult: Codable, Identifiable, Equatable {
     // Compilation
     let collectionArtistName: String?
     
+    // Additional artist info
+    let amgArtistId: Int?
+    let primaryGenreName: String?
+    let primaryGenreId: Int?
+    
     enum CodingKeys: String, CodingKey {
         case wrapperType
+        case artistType
         case artistName
         case collectionId
         case collectionName
         case collectionViewURL = "collectionViewUrl"
         case artworkURL100 = "artworkUrl100"
         case releaseDate
-        case primaryGenreName
         case copyright
         case artistId
         case artistLinkURL = "artistLinkUrl"
@@ -196,6 +201,9 @@ struct iTunesSearchResult: Codable, Identifiable, Equatable {
         case trackTimeMillis
         case previewURL = "previewUrl"
         case collectionArtistName
+        case amgArtistId
+        case primaryGenreName
+        case primaryGenreId
     }
 
     var id: Int {
@@ -205,10 +213,11 @@ struct iTunesSearchResult: Codable, Identifiable, Equatable {
         if wrapperType == "artist", let artistId {
             return artistId
         }
-        return collectionId
+        return collectionId ?? 0
     }
 
     var artworkURL: URL? {
+        guard let artworkURL100 = artworkURL100 else { return nil }
         let str = artworkURL100.absoluteString.replacingOccurrences(of: "100x100", with: "1000x1000")
         return URL(string: str)
     }

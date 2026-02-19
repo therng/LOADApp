@@ -51,25 +51,24 @@ class ArtistStorageService {
         saveArtists()
     }
 
-    private func follow(artistName: String) async {
-        do {
-            guard let result = try await APIService.shared.searchForArtist(artistName) else { return }
-            guard var newArtist = Artist(result: result) else { return }
-
-            // Fetch artist image from the artist link on the search result
-            if let imageURL = await APIService.shared.fetchArtistImage(from: newArtist.artistLinkURL) {
-                newArtist.artistImage = imageURL
+        private func follow(artistName: String) async {
+            do {
+                guard let result = try await APIService.shared.searchForArtist(artistName, limit: 1) else { return }
+                guard var newArtist = Artist(result: result) else { return }
+    
+                // Fetch artist image from the artist link on the search result
+                if let imageURL = await APIService.shared.fetchArtistImage(from: newArtist.artistLinkURL) {
+                    newArtist.artistImage = imageURL
+                }
+                
+                if !isArtistFollowed(artistName: newArtist.artistName) {
+                    artists.append(newArtist)
+                    saveArtists()
+                }
+            } catch {
+                print("Error following artist: \(error.localizedDescription)")
             }
-            
-            if !isArtistFollowed(artistName: newArtist.artistName) {
-                artists.append(newArtist)
-                saveArtists()
-            }
-        } catch {
-            print("Error following artist: \(error.localizedDescription)")
         }
-    }
-
     // MARK: - Persistence
 
     private func loadArtists() {
